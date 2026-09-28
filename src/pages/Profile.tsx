@@ -149,6 +149,7 @@ export default function Profile() {
       <StoresCard stores={stores} householdId={household?.id} run={run} busy={busy} />
 
       <button className="btn ghost block" onClick={() => supabase.auth.signOut()}>Sign out</button>
+      <div className="small muted" style={{ textAlign: 'center' }}>Version {new Date(__BUILD__).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
     </Screen>
   )
 }

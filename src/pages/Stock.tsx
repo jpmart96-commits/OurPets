@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { errMsg } from '../lib/supabase'
 import { fmtShort } from '../lib/dates'
-import { daysText, fmtNum, foodGramsPerDay, itemInfo, scheduleText, unitFor } from '../lib/calc'
-import { refill } from '../lib/actions'
+import { daysText, fmtKg, fmtNum, foodGramsPerDay, itemInfo, scheduleText, unitFor } from '../lib/calc'
+import { refill, setFoodLeft } from '../lib/actions'
 import type { ItemType, StockItem } from '../lib/types'
 import { Bar, Chips, Empty, ErrorNote, ItemThumb, OwnerSwitch, Screen } from '../components/ui'
 import { IconCart, IconChevron, IconPlus } from '../components/icons'
@@ -17,6 +17,8 @@ export default function Stock() {
   const [type, setType] = useState<TypeFilter>('all')
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [amount, setAmount] = useState('')
 
   const visible = items.filter((it) => showOwner(it.owner_id))
   const active = visible.filter((it) => it.status === 'active')
@@ -42,6 +44,16 @@ export default function Stock() {
       return [pets, g ? `${fmtNum(g)} g/day` : null].filter(Boolean).join(' · ')
     }
     return [pets, it.pack_days ? `1 pack every ~${it.pack_days} days` : null].filter(Boolean).join(' · ')
+  }
+
+  async function saveAmount(it: StockItem) {
+    const kg = parseFloat(amount.replace(',', '.'))
+    if (!Number.isFinite(kg) || kg < 0) { setErr('Type how many kg are left, e.g. 4.35'); return }
+    setBusy(it.id); setErr(null)
+    const r = await setFoodLeft(it, kg)
+    if (r.error) setErr(errMsg(r.error))
+    await reload()
+    setBusy(null); setEditing(null)
   }
 
   async function doRefill(it: StockItem) {
@@ -94,6 +106,12 @@ export default function Stock() {
               <div className="grow"><h2 className="h">{it.name}</h2><div className="row-sub">{detail(it)}</div></div>
               {storeName(it) && <span className="badge">{storeName(it)}</span>}
             </Link>
+            {it.type === 'food' && info.kgNow != null && (
+              <div className="row between" style={{ padding: '8px 10px', borderRadius: 10, background: 'var(--surface-2)' }}>
+                <span className="small tabular" style={{ fontWeight: 600 }}>≈ {fmtKg(info.kgNow)}{it.pack_kg ? ` of ${fmtKg(Number(it.pack_kg))}` : ''} kg left</span>
+                {it.left_counted_at && <span className="small muted">counted {fmtShort(it.left_counted_at.slice(0, 10))}</span>}
+              </div>
+            )}
             {isMed && info.countNow != null && (
               <div className="row between" style={{ padding: '8px 10px', borderRadius: 10, background: 'var(--surface-2)' }}>
                 <span className="small tabular" style={{ fontWeight: 600 }}>{fmtNum(info.countNow)}{it.box_size ? ` of ${fmtNum(Number(it.box_size))}` : ''} {unitFor(it)} left</span>
@@ -113,11 +131,24 @@ export default function Stock() {
             ) : (
               <div className="small muted">Add {it.type === 'food' ? 'pack size and daily amounts' : it.type === 'supply' ? 'how long a pack lasts' : 'the dose and schedule'} to see days left.</div>
             )}
-            <div className="row" style={{ gap: 8 }}>
+            {editing === it.id && (
+              <form className="row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); void saveAmount(it) }}>
+                <label htmlFor={`amt-${it.id}`} className="visually-hidden">Kg left now</label>
+                <input id={`amt-${it.id}`} className="input" inputMode="decimal" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Kg left, e.g. 4.35" />
+                <button className="btn small" style={{ minHeight: 46, flexShrink: 0 }} type="submit" disabled={busy === it.id}>Save</button>
+                <button className="btn ghost small" style={{ minHeight: 46, flexShrink: 0 }} type="button" onClick={() => setEditing(null)}>Cancel</button>
+              </form>
+            )}
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
               {mine ? (
-                <button className="btn ghost small" disabled={busy === it.id || (isMed && !it.box_size)} onClick={() => doRefill(it)}>
-                  {isMed ? 'Refilled +1 box' : 'New pack opened'}
-                </button>
+                <>
+                  <button className="btn ghost small" disabled={busy === it.id || (isMed && !it.box_size)} onClick={() => doRefill(it)}>
+                    {isMed ? 'Refilled +1 box' : 'New pack opened'}
+                  </button>
+                  {it.type === 'food' && editing !== it.id && (
+                    <button className="btn ghost small" onClick={() => { setEditing(it.id); setAmount(info.kgNow != null ? String(info.kgNow) : '') }}>Update amount</button>
+                  )}
+                </>
               ) : <span className="owner-tag">{nameOf(it.owner_id)}'s</span>}
               {it.in_cart && <span className="badge good">{it.ordered_at ? 'Ordered' : 'In cart'}</span>}
             </div>

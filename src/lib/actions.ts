@@ -13,7 +13,15 @@ export async function refill(item: StockItem) {
       in_cart: false, ordered_at: null
     }).eq('id', item.id)
   }
-  return supabase.from('stock_items').update({ opened_on: todayISO(), in_cart: false, ordered_at: null }).eq('id', item.id)
+  return supabase.from('stock_items').update({
+    opened_on: todayISO(), in_cart: false, ordered_at: null,
+    ...(item.type === 'food' ? { left_kg: item.pack_kg, left_counted_at: new Date().toISOString() } : {})
+  }).eq('id', item.id)
+}
+
+/** Food: record how much is actually left right now (e.g. weighed the bag). */
+export async function setFoodLeft(item: StockItem, kg: number) {
+  return supabase.from('stock_items').update({ left_kg: Math.max(0, kg), left_counted_at: new Date().toISOString() }).eq('id', item.id)
 }
 
 /** Log one as-needed dose and take it off the count. */

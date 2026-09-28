@@ -69,6 +69,8 @@ export interface StockItem {
   lead_days: number
   pack_kg: number | null
   opened_on: string | null
+  left_kg: number | null
+  left_counted_at: string | null
   pack_days: number | null
   form: MedForm | null
   dose: number | null

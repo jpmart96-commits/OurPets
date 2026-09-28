@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import { addDays, fmtShort, parseISO, todayISO } from '../lib/dates'
-import { UNIT_PLURAL, fmtNum, itemInfo, ordinal } from '../lib/calc'
+import { UNIT_PLURAL, fmtKg, fmtNum, itemInfo, ordinal } from '../lib/calc'
 import type { Frequency, ItemStatus, ItemType, MedForm, StockItem } from '../lib/types'
 import { removePhoto, signPhotos, uploadPhoto } from '../lib/photos'
 import { looksLikeUrl, lookupProduct, type LookupResult, type LookupVariant } from '../lib/lookup'
@@ -40,6 +40,8 @@ export default function StockForm() {
   const [grams, setGrams] = useState<Record<string, string>>({})
   const [packDays, setPackDays] = useState('')
   const [openedOn, setOpenedOn] = useState(todayISO())
+  const [leftKg, setLeftKg] = useState('')
+  const [leftInitial, setLeftInitial] = useState('')
   // med
   const [form, setForm] = useState<MedForm>('tablet')
   const [dose, setDose] = useState('1')
@@ -59,6 +61,7 @@ export default function StockForm() {
   const [lookup, setLookup] = useState<LookupResult | null>(null)
   const [lookedUp, setLookedUp] = useState('')
   const [variantIdx, setVariantIdx] = useState<number | null>(null)
+  const [linkTyped, setLinkTyped] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -69,6 +72,11 @@ export default function StockForm() {
     setStoreId(e.store_id ?? ''); setProductUrl(e.product_url ?? ''); setCartUrl(e.cart_url ?? ''); setPrice(e.price != null ? String(e.price) : '')
     setLead(e.lead_days); setPackKg(e.pack_kg != null ? String(e.pack_kg) : ''); setPackDays(e.pack_days != null ? String(e.pack_days) : '')
     setOpenedOn(e.opened_on ?? todayISO())
+    if (e.type === 'food') {
+      const k = itemInfo(e).kgNow
+      const v = k != null ? String(Math.round(k * 100) / 100) : ''
+      setLeftKg(v); setLeftInitial(v)
+    }
     setGrams(Object.fromEntries(e.stock_item_pets.map((p) => [p.pet_id, p.daily_grams != null ? String(p.daily_grams) : ''])))
     setForm(e.form ?? 'tablet'); setDose(e.dose != null ? String(e.dose) : '1'); setFreq(e.frequency ?? 'daily')
     setTimes(e.dose_times?.length ? e.dose_times : ['08:00']); setStartDate(e.start_date ?? todayISO())
@@ -87,6 +95,14 @@ export default function StockForm() {
     } catch { /* not a full URL yet */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productUrl])
+
+  // Look the product up as soon as a full link is pasted or typed (any keyboard, any paste method)
+  useEffect(() => {
+    if (!linkTyped || !looksLikeUrl(productUrl) || productUrl.trim() === lookedUp) return
+    const t = setTimeout(() => void runLookup(productUrl), 450)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productUrl, linkTyped])
 
   const isMed = type === 'med', isFood = type === 'food', isSupply = type === 'supply'
   const unit = UNIT_PLURAL[form]
@@ -112,11 +128,16 @@ export default function StockForm() {
       const days = g > 0 ? Math.floor((n(packKg) * 1000) / g) : 0
       if (!days) return { big: 'Pick who eats it', txt: 'Choose at least one pet and a daily amount to see how long a pack lasts.' }
       const perDay = n(price) ? ` That's about €${(n(price) / days).toFixed(2)} a day.` : ''
-      return { big: `One pack lasts about ${days} days`, txt: `${perDay} You'll get a reminder ${lead} days before it runs out and it goes on your ${where} list.`.trim() }
+      const left = leftKg.trim() ? n(leftKg) : n(packKg)
+      const leftDays = Math.floor((left * 1000) / g)
+      return {
+        big: `${fmtKg(left)} kg left · about ${leftDays} days`,
+        txt: `A full ${fmtKg(n(packKg))} kg pack lasts about ${days} days.${perDay} You'll be reminded on ${fmtShort(addDays(todayISO(), Math.max(0, leftDays - lead)))} and it goes on your ${where} list.`
+      }
     }
     const days = n(packDays)
     return days ? { big: `One pack lasts about ${days} days`, txt: `You'll get a reminder ${lead} days before it runs out and it goes on your ${where} list.` } : { big: 'How long does a pack last?', txt: 'Add the number of days one pack lasts.' }
-  }, [isMed, isFood, dose, onHand, boxSize, freq, times, status, alertAt, unit, lead, source, storeId, stores, petIds, grams, packKg, price, packDays])
+  }, [leftKg, isMed, isFood, dose, onHand, boxSize, freq, times, status, alertAt, unit, lead, source, storeId, stores, petIds, grams, packKg, price, packDays])
 
   if (existing && existing.owner_id !== userId) {
     return (
@@ -145,12 +166,12 @@ export default function StockForm() {
     if (v.price != null) setPrice(String(v.price))
     if (v.pack_kg) setPackKg(String(v.pack_kg))
     if (v.units) setBoxSize(String(v.units))
-    if (v.url) setProductUrl(v.url)
+    if (v.url) { setLookedUp(v.url); setProductUrl(v.url) }
   }
 
-  async function runLookup(url: string) {
+  async function runLookup(url: string, force = false) {
     const u = url.trim()
-    if (!looksLikeUrl(u) || u === lookedUp || looking) return
+    if (!looksLikeUrl(u) || looking || (!force && u === lookedUp)) return
     setLooking(true); setLookup(null); setLookedUp(u)
     const r = await lookupProduct(u)
     setLooking(false)
@@ -166,7 +187,7 @@ export default function StockForm() {
       if (r.units) { setBoxSize(String(r.units)); if (!onHand.trim()) setOnHand(String(r.units)) }
       setSource('store')
     }
-    if (r.url && r.url !== u) setProductUrl(r.url)
+    if (r.url && r.url !== u) { setLookedUp(r.url); setProductUrl(r.url) }
     if (r.site) {
       const match = stores.find((s) => r.site!.toLowerCase().includes(s.name.toLowerCase().replace(/\s+/g, '')))
       if (match) setStoreId(match.id)
@@ -197,7 +218,16 @@ export default function StockForm() {
       price: num(price)
     }
     if (isFood || isSupply) {
-      row.opened_on = openedOn || todayISO()
+      row.opened_on = isFood ? (existing?.opened_on ?? todayISO()) : openedOn || todayISO()
+      if (isFood) {
+        const g0 = existing ? existing.stock_item_pets.reduce((a, p) => a + Number(p.daily_grams ?? 0), 0) : -1
+        const g1 = petIds.reduce((a, p) => a + (num(grams[p] ?? '') ?? 0), 0)
+        const packChanged = existing && String(existing.pack_kg ?? '') !== String(num(packKg) ?? '')
+        if (!existing || leftKg !== leftInitial || g0 !== g1 || packChanged) {
+          row.left_kg = leftKg.trim() ? num(leftKg) : num(packKg)
+          row.left_counted_at = new Date().toISOString()
+        }
+      }
       row.pack_kg = isFood ? num(packKg) : null
       row.pack_days = isSupply ? Math.round(num(packDays) ?? 0) || null : null
     }
@@ -268,11 +298,9 @@ export default function StockForm() {
             <label id="link-h" htmlFor="su" className="label">Product link</label>
             <div className="row" style={{ gap: 8 }}>
               <input id="su" className="input" type="url" inputMode="url" value={productUrl} placeholder="Paste a Zooplus or Newpet link"
-                onChange={(e) => setProductUrl(e.target.value)}
-                onPaste={(e) => { const t = e.clipboardData.getData('text'); if (looksLikeUrl(t)) setTimeout(() => void runLookup(t), 0) }}
-                onBlur={() => void runLookup(productUrl)} />
+                onChange={(e) => { setProductUrl(e.target.value); setLinkTyped(true) }} />
               <button type="button" className="btn small" style={{ minHeight: 46, flexShrink: 0 }} disabled={!looksLikeUrl(productUrl) || looking}
-                onClick={() => { setLookedUp(''); void runLookup(productUrl) }}>{looking ? 'Reading…' : 'Fill in'}</button>
+                onClick={() => void runLookup(productUrl, true)}>{looking ? 'Reading…' : 'Fill in'}</button>
             </div>
             {looking && <div className="hint">Reading the store page…</div>}
             {!looking && lookup?.error && <div className="hint" style={{ color: 'var(--warn)' }}>{lookup.error}</div>}
@@ -428,7 +456,19 @@ export default function StockForm() {
           <div className="field" style={{ maxWidth: '50%' }}><label htmlFor="sp3">Price per box (€)</label><input id="sp3" className="input" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
         )}
 
-        {(isFood || isSupply) && (
+        {isFood && (
+          <div className="field">
+            <label htmlFor="sleft">Left right now (kg)</label>
+            <div className="row" style={{ gap: 8 }}>
+              <input id="sleft" className="input" inputMode="decimal" value={leftKg} onChange={(e) => setLeftKg(e.target.value)}
+                placeholder={packKg ? `Full bag · ${packKg} kg` : 'e.g. 4.35'} />
+              {packKg && <button type="button" className="btn ghost small" style={{ minHeight: 46, flexShrink: 0 }} onClick={() => setLeftKg(packKg)}>Full bag</button>}
+            </div>
+            <div className="hint">Weigh the bag or guess. The app counts down from here using how much your pets eat each day.</div>
+          </div>
+        )}
+
+        {isSupply && (
           <div className="field">
             <label htmlFor="so">Current pack opened on</label>
             <input id="so" className="input" type="date" value={openedOn} max={todayISO()} onChange={(e) => setOpenedOn(e.target.value)} />

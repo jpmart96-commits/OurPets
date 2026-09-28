@@ -5,6 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 // base './' so the build works on GitHub Pages under /ourpets/ and locally
 export default defineConfig({
   base: './',
+  define: { __BUILD__: JSON.stringify(new Date().toISOString()) },
   plugins: [
     react(),
     VitePWA({

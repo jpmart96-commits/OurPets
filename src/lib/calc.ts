@@ -24,6 +24,12 @@ export function fmtNum(n: number | null | undefined): string {
   return String(Math.round(n * 100) / 100)
 }
 
+/** Kilograms as plain decimals: 4.35, 12, 1.5 */
+export function fmtKg(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(n)) return '0'
+  return String(Math.round(n * 100) / 100)
+}
+
 export function ordinal(n: number): string {
   const s = ['th', 'st', 'nd', 'rd']
   const v = n % 100
@@ -134,6 +140,18 @@ export function foodGramsPerDay(item: StockItem): number {
   return item.stock_item_pets.reduce((s, p) => s + Number(p.daily_grams ?? 0), 0)
 }
 
+/** Food: kg left now = last count minus daily grams since then. Falls back to pack size minus days since the pack was opened. */
+export function foodKgNow(item: StockItem, now = new Date()): number | null {
+  const g = foodGramsPerDay(item)
+  if (item.left_kg != null && item.left_counted_at) {
+    const days = Math.max(0, (now.getTime() - new Date(item.left_counted_at).getTime()) / 86400000)
+    return Math.max(0, Math.round((Number(item.left_kg) - (g * days) / 1000) * 100) / 100)
+  }
+  if (item.pack_kg == null) return null
+  const elapsed = item.opened_on ? Math.max(0, daysBetween(item.opened_on, toISO(now))) : 0
+  return Math.max(0, Math.round((Number(item.pack_kg) - (g * elapsed) / 1000) * 100) / 100)
+}
+
 export interface ItemInfo {
   daysLeft: number | null
   packDays: number | null
@@ -144,6 +162,8 @@ export interface ItemInfo {
   due: boolean
   countNow: number | null
   lowAsNeeded: boolean
+  /** food only: estimated kg left right now */
+  kgNow: number | null
 }
 
 export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
@@ -160,7 +180,12 @@ export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
   } else if (item.type === 'supply') {
     packDays = item.pack_days ?? null
   }
-  if (item.type !== 'med' && packDays != null) {
+  let kgNow: number | null = null
+  if (item.type === 'food') kgNow = foodKgNow(item, now)
+  if (item.type === 'food' && kgNow != null) {
+    const g = foodGramsPerDay(item)
+    daysLeft = g > 0 ? Math.max(0, Math.floor((kgNow * 1000) / g)) : null
+  } else if (item.type !== 'med' && packDays != null) {
     const elapsed = item.opened_on ? Math.max(0, daysBetween(item.opened_on, today)) : 0
     daysLeft = Math.max(0, packDays - elapsed)
   }
@@ -186,7 +211,8 @@ export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
     urgent: (orderIn != null && orderIn <= 1) || lowAsNeeded,
     due: active && ((orderIn != null && orderIn <= 7) || lowAsNeeded),
     countNow,
-    lowAsNeeded
+    lowAsNeeded,
+    kgNow
   }
 }
 
