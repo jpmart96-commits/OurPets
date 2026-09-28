@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { errMsg } from '../lib/supabase'
 import { fmtShort } from '../lib/dates'
-import { daysText, fmtKg, fmtNum, foodGramsPerDay, itemInfo, scheduleText, unitFor } from '../lib/calc'
+import { daysText, fmtKg, fmtNum, foodGramsPerDay, isUnitFood, itemInfo, scheduleText, unitFor, unitRateText, unitWord } from '../lib/calc'
 import { refill, setFoodLeft } from '../lib/actions'
 import type { ItemType, StockItem } from '../lib/types'
-import { Bar, Chips, Empty, ErrorNote, ItemThumb, OwnerSwitch, Screen } from '../components/ui'
+import { Bar, Chips, Empty, ErrorNote, InfoTip, ItemThumb, OwnerSwitch, Screen } from '../components/ui'
+import { UnitFood } from '../components/UnitFood'
 import { IconCart, IconChevron, IconPlus } from '../components/icons'
 
 type TypeFilter = 'all' | ItemType
@@ -39,6 +40,7 @@ export default function Stock() {
   const detail = (it: StockItem) => {
     const pets = petNames(it)
     if (it.type === 'med') return [pets, scheduleText(it)].filter(Boolean).join(' · ')
+    if (isUnitFood(it)) return [pets, unitRateText(it.unit_label, it.unit_days)].filter(Boolean).join(' · ')
     if (it.type === 'food') {
       const g = foodGramsPerDay(it)
       return [pets, g ? `${fmtNum(g)} g/day` : null].filter(Boolean).join(' · ')
@@ -106,15 +108,20 @@ export default function Stock() {
               <div className="grow"><h2 className="h">{it.name}</h2><div className="row-sub">{detail(it)}</div></div>
               {storeName(it) && <span className="badge">{storeName(it)}</span>}
             </Link>
-            {it.type === 'food' && info.kgNow != null && (
+            {isUnitFood(it) && <UnitFood item={it} info={info} mine={mine} reload={reload} />}
+            {it.type === 'food' && !isUnitFood(it) && info.kgNow != null && (
               <div className="row between" style={{ padding: '8px 10px', borderRadius: 10, background: 'var(--surface-2)' }}>
-                <span className="small tabular" style={{ fontWeight: 600 }}>≈ {fmtKg(info.kgNow)}{it.pack_kg ? ` of ${fmtKg(Number(it.pack_kg))}` : ''} kg left</span>
+                <span className="small tabular" style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 2 }}>≈ {fmtKg(info.kgNow)}{it.pack_kg ? ` of ${fmtKg(Number(it.pack_kg))}` : ''} kg left
+                  <InfoTip label="How the kg left is worked out">An estimate: the last amount you entered minus what your pets eat each day since then. Tap “Update amount” after weighing the bag to correct it.</InfoTip>
+                </span>
                 {it.left_counted_at && <span className="small muted">counted {fmtShort(it.left_counted_at.slice(0, 10))}</span>}
               </div>
             )}
             {isMed && info.countNow != null && (
               <div className="row between" style={{ padding: '8px 10px', borderRadius: 10, background: 'var(--surface-2)' }}>
-                <span className="small tabular" style={{ fontWeight: 600 }}>{fmtNum(info.countNow)}{it.box_size ? ` of ${fmtNum(Number(it.box_size))}` : ''} {unitFor(it)} left</span>
+                <span className="small tabular" style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 2 }}>{fmtNum(info.countNow)}{it.box_size ? ` of ${fmtNum(Number(it.box_size))}` : ''} {unitFor(it)} left
+                  {it.frequency !== 'as_needed' && <InfoTip label="How the count is worked out">Your last count minus every scheduled dose since then. Edit the item to type a new count if it's off.</InfoTip>}
+                </span>
                 <span className="badge pill good">{it.frequency === 'as_needed' ? 'As needed' : 'Active'}{it.source === 'vet' ? ' · Rx' : ''}</span>
               </div>
             )}
@@ -123,13 +130,17 @@ export default function Stock() {
                 {info.pct != null && <Bar pct={info.pct} urgent={info.urgent} label={`${info.daysLeft} days remaining`} />}
                 <div className="row between" style={{ marginTop: 8, alignItems: 'baseline' }}>
                   <span style={{ fontSize: 14, fontWeight: 700 }} className={info.urgent ? 'warn-text' : ''}>{daysText(info.daysLeft)}</span>
-                  {info.orderIn != null && <span className="small muted">{info.orderIn <= 0 ? 'Order today' : `Order by ${fmtShort(info.orderBy!)}`}</span>}
+                  {info.orderIn != null && (
+                    <span className="small muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>{info.orderIn <= 0 ? 'Order today' : `Order by ${fmtShort(info.orderBy!)}`}
+                      <InfoTip label="About the order date">The day it runs out, minus the {it.lead_days} {it.lead_days === 1 ? 'day' : 'days'} you said it takes to get more. From a week before, it shows up in the Shop tab.</InfoTip>
+                    </span>
+                  )}
                 </div>
               </div>
             ) : isMed && it.frequency === 'as_needed' ? (
               <div className={'small ' + (info.lowAsNeeded ? 'warn-text' : 'muted')}>{info.lowAsNeeded ? 'Running low. ' : ''}Given only when needed, so there's no countdown. Alert at {fmtNum(Number(it.alert_at ?? 2))} left.</div>
             ) : (
-              <div className="small muted">Add {it.type === 'food' ? 'pack size and daily amounts' : it.type === 'supply' ? 'how long a pack lasts' : 'the dose and schedule'} to see days left.</div>
+              <div className="small muted">Add {isUnitFood(it) ? `${unitWord(it.unit_label)} per pack and how long one lasts` : it.type === 'food' ? 'pack size and daily amounts' : it.type === 'supply' ? 'how long a pack lasts' : 'the dose and schedule'} to see days left.</div>
             )}
             {editing === it.id && (
               <form className="row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); void saveAmount(it) }}>
@@ -139,8 +150,8 @@ export default function Stock() {
                 <button className="btn ghost small" style={{ minHeight: 46, flexShrink: 0 }} type="button" onClick={() => setEditing(null)}>Cancel</button>
               </form>
             )}
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-              {mine ? (
+            {(!isUnitFood(it) || !mine || it.in_cart) && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              {mine ? (isUnitFood(it) ? null : (
                 <>
                   <button className="btn ghost small" disabled={busy === it.id || (isMed && !it.box_size)} onClick={() => doRefill(it)}>
                     {isMed ? 'Refilled +1 box' : 'New pack opened'}
@@ -149,9 +160,9 @@ export default function Stock() {
                     <button className="btn ghost small" onClick={() => { setEditing(it.id); setAmount(info.kgNow != null ? String(info.kgNow) : '') }}>Update amount</button>
                   )}
                 </>
-              ) : <span className="owner-tag">{nameOf(it.owner_id)}'s</span>}
+              )) : <span className="owner-tag">{nameOf(it.owner_id)}'s</span>}
               {it.in_cart && <span className="badge good">{it.ordered_at ? 'Ordered' : 'In cart'}</span>}
-            </div>
+            </div>}
           </article>
         )
       })}

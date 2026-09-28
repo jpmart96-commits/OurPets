@@ -5,7 +5,7 @@ import { supabase, errMsg } from '../lib/supabase'
 import { fmtShort } from '../lib/dates'
 import { euro, fmtNum, itemInfo, type ItemInfo } from '../lib/calc'
 import type { StockItem, Store } from '../lib/types'
-import { Bar, Empty, ErrorNote, OwnerSwitch, Screen } from '../components/ui'
+import { Bar, Empty, ErrorNote, OwnerSwitch, Screen, InfoTip } from '../components/ui'
 import { IconCheck, IconExternal } from '../components/icons'
 
 interface Row { it: StockItem; info: ItemInfo }
@@ -153,8 +153,9 @@ export default function Shop() {
                   {threshold > 0 && (
                     <div>
                       <Bar pct={Math.max(3, Math.min(100, Math.round((sub / threshold) * 100)))} label="Progress to free shipping" />
-                      <div className="small" style={{ color: 'var(--muted-2)', marginTop: 6 }}>
+                      <div className="small" style={{ color: 'var(--muted-2)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 2 }}>
                         {sub >= threshold ? 'Free shipping unlocked' : `${euro(threshold - sub)} away from free shipping (${euro(threshold)})`}
+                        <InfoTip label="About free shipping">Adds up the prices saved on these items. Change the store's free-shipping amount in Profile, under Stores.</InfoTip>
                       </div>
                     </div>
                   )}

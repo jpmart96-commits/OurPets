@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import type { Store } from '../lib/types'
-import { Avatar, BackLink, ErrorNote, Screen, Toggle } from '../components/ui'
+import { Avatar, BackLink, ErrorNote, Screen, Toggle, FieldLabel } from '../components/ui'
 import { IconCamera, IconPlus } from '../components/icons'
 import { removePhoto, uploadPhoto } from '../lib/photos'
 
@@ -190,8 +190,8 @@ function StoresCard({ stores, householdId, run, busy }: { stores: Store[]; house
       {editing && (
         <form className="card-foot" onSubmit={save}>
           <div className="field"><label htmlFor="stn">Store name</label><input id="stn" className="input" value={name} onChange={(e) => setName(e.target.value)} required /></div>
-          <div className="field"><label htmlFor="stc">Cart page link</label><input id="stc" className="input" type="url" value={cart} onChange={(e) => setCart(e.target.value)} placeholder="https://…/cart" /></div>
-          <div className="field"><label htmlFor="stt">Free shipping from (€)</label><input id="stt" className="input" inputMode="decimal" value={threshold} onChange={(e) => setThreshold(e.target.value)} /></div>
+          <div className="field"><FieldLabel htmlFor="stc" tip="The store's basket page. “Open cart” in the Shop tab takes you here to check out.">Cart page link</FieldLabel><input id="stc" className="input" type="url" value={cart} onChange={(e) => setCart(e.target.value)} placeholder="https://…/cart" /></div>
+          <div className="field"><FieldLabel htmlFor="stt" tip="The order total at which this store ships for free. The Shop tab shows how close your order is and suggests items due soon to reach it.">Free shipping from (€)</FieldLabel><input id="stt" className="input" inputMode="decimal" value={threshold} onChange={(e) => setThreshold(e.target.value)} /></div>
           <div className="row" style={{ gap: 8 }}>
             <button className="btn" type="submit" disabled={busy} style={{ flex: 1 }}>Save store</button>
             <button className="btn ghost" type="button" onClick={() => setEditing(null)} style={{ flex: 1 }}>Cancel</button>

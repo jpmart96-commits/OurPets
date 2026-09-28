@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { ItemType, MedForm } from './types'
+import type { ItemType, MedForm, UnitLabel } from './types'
 
 export interface LookupVariant {
   label: string
@@ -9,6 +9,9 @@ export interface LookupVariant {
   pack_kg?: number
   units?: number
   pack_text?: string
+  /** multipacks of small units (e.g. 12 x 135 g cans) */
+  pack_units?: number
+  unit_label?: UnitLabel
 }
 
 export interface LookupResult {
@@ -21,6 +24,8 @@ export interface LookupResult {
   pack_kg?: number
   units?: number
   pack_text?: string
+  pack_units?: number
+  unit_label?: UnitLabel
   type?: ItemType
   form?: MedForm
   site?: string

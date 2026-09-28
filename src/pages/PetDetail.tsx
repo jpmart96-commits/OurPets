@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import { addDays, ageText, fmtDate, fmtDateTime, fmtShort, parseISO, todayISO } from '../lib/dates'
-import { daysText, fmtNum, isDueOn, itemInfo, medStart, medTimes, scheduleText, unitFor } from '../lib/calc'
+import { daysText, fmtNum, isDueOn, itemInfo, medStart, medTimes, scheduleText, unitFor, isUnitFood, unitRateText } from '../lib/calc'
 import { logAsNeeded, refill } from '../lib/actions'
 import type { Appointment, DocumentRow, StockItem, Weight } from '../lib/types'
 import { Avatar, BackLink, Bar, ErrorNote, ItemThumb, Loading, Screen, Segmented } from '../components/ui'
@@ -102,7 +102,7 @@ export default function PetDetail() {
                   <Link key={it.id} to={`/stock/${it.id}`} className="card-row" style={{ textDecoration: 'none', color: 'inherit' }}>
                     <ItemThumb type={it.type} src={photoUrl(it.photo_path)} />
                     <div className="grow"><div className="row-title">{it.name}</div>
-                      <div className="row-sub">{it.type === 'med' ? scheduleText(it) : it.type === 'food' ? `${fmtNum(it.stock_item_pets.find((p) => p.pet_id === pet.id)?.daily_grams ?? 0)} g/day` : ''}</div></div>
+                      <div className="row-sub">{it.type === 'med' ? scheduleText(it) : isUnitFood(it) ? unitRateText(it.unit_label, it.unit_days) : it.type === 'food' ? `${fmtNum(it.stock_item_pets.find((p) => p.pet_id === pet.id)?.daily_grams ?? 0)} g/day` : ''}</div></div>
                     {info.daysLeft != null ? <span className={'badge ' + (info.urgent ? 'warn' : 'grey')}>{info.daysLeft} days</span>
                       : info.countNow != null ? <span className={'badge ' + (info.lowAsNeeded ? 'warn' : 'grey')}>{fmtNum(info.countNow)} left</span> : null}
                   </Link>

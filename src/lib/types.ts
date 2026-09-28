@@ -3,6 +3,9 @@ export type ItemType = 'food' | 'med' | 'supply'
 export type ItemStatus = 'active' | 'paused' | 'finished'
 export type Frequency = 'daily' | 'weekly' | 'monthly' | 'as_needed'
 export type MedForm = 'tablet' | 'chew' | 'capsule' | 'sachet' | 'dose'
+export type TrackBy = 'weight' | 'units'
+export type UnitLabel = 'can' | 'pouch' | 'tray' | 'sachet'
+export interface UnitOpen { at: string; n: number }
 
 export interface Profile {
   id: string
@@ -72,6 +75,13 @@ export interface StockItem {
   left_kg: number | null
   left_counted_at: string | null
   pack_days: number | null
+  track_by: TrackBy
+  unit_label: UnitLabel
+  pack_units: number | null
+  unit_days: number | null
+  units_left: number | null
+  unit_opened_at: string | null
+  unit_opens: UnitOpen[]
   form: MedForm | null
   dose: number | null
   frequency: Frequency | null

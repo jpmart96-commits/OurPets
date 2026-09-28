@@ -1,4 +1,4 @@
-import type { MedForm, StockItem } from './types'
+import type { MedForm, StockItem, UnitLabel } from './types'
 import { addDays, daysBetween, parseISO, toISO, todayISO } from './dates'
 
 export const UNIT_PLURAL: Record<MedForm, string> = {
@@ -152,6 +152,112 @@ export function foodKgNow(item: StockItem, now = new Date()): number | null {
   return Math.max(0, Math.round((Number(item.pack_kg) - (g * elapsed) / 1000) * 100) / 100)
 }
 
+
+// ───────────── Food tracked by units (cans, pouches, trays) ─────────────
+
+const DAY_MS = 86400000
+
+export const UNIT_WORDS: Record<UnitLabel, [string, string]> = {
+  can: ['can', 'cans'], pouch: ['pouch', 'pouches'], tray: ['tray', 'trays'], sachet: ['sachet', 'sachets']
+}
+
+export function unitWord(label: UnitLabel | null | undefined, n = 2): string {
+  const w = UNIT_WORDS[label ?? 'can'] ?? UNIT_WORDS.can
+  return n === 1 ? w[0] : w[1]
+}
+
+export function isUnitFood(item: Pick<StockItem, 'type' | 'track_by'>): boolean {
+  return item.type === 'food' && item.track_by === 'units'
+}
+
+export interface UnitState {
+  /** unopened units right now (estimated) */
+  unopened: number
+  /** when the current unit was (or is assumed to have been) opened */
+  openedAt: Date | null
+  /** share of the current unit still left, 0–1 */
+  currentLeft: number | null
+  daysLeft: number | null
+}
+
+/**
+ * The app assumes a new unit is opened every `unit_days` days after `unit_opened_at`.
+ * `units_left` is the unopened count at `unit_opened_at`.
+ */
+export function unitState(item: StockItem, now = new Date()): UnitState {
+  const d = Number(item.unit_days ?? 0)
+  const stored = Math.max(0, Number(item.units_left ?? 0))
+  if (!item.unit_opened_at || d <= 0) {
+    return { unopened: stored, openedAt: item.unit_opened_at ? new Date(item.unit_opened_at) : null, currentLeft: null, daysLeft: d > 0 ? Math.floor(stored * d) : null }
+  }
+  const t0 = new Date(item.unit_opened_at).getTime()
+  const e = Math.max(0, (now.getTime() - t0) / DAY_MS)
+  const k = Math.min(stored, Math.floor(e / d))
+  const openedAt = new Date(t0 + k * d * DAY_MS)
+  const into = Math.max(0, (now.getTime() - openedAt.getTime()) / DAY_MS)
+  return {
+    unopened: stored - k,
+    openedAt,
+    currentLeft: Math.max(0, Math.min(1, 1 - into / d)),
+    daysLeft: Math.floor(Math.max(0, (stored + 1) * d - e) + 1e-9)
+  }
+}
+
+/**
+ * Tapping "Opened a new can" long after the last one is ambiguous: either one can lasted longer,
+ * or some openings weren't logged. The app asks when it's been 1.75× the usual time or more.
+ */
+export function unitTapCheck(item: StockItem, now = new Date()): { sinceDays: number; ambiguous: boolean; guess: number } {
+  const d = Number(item.unit_days ?? 0)
+  const since = item.unit_opened_at ? Math.max(0, (now.getTime() - new Date(item.unit_opened_at).getTime()) / DAY_MS) : 0
+  const ambiguous = d > 0 && !!item.unit_opened_at && since >= 1.75 * d
+  return { sinceDays: since, ambiguous, guess: d > 0 ? Math.max(1, Math.round(since / d)) : 1 }
+}
+
+/** Median time one unit really lasted, from the last logged single openings. Needs 3 or more. */
+export function learnedUnitDays(item: StockItem): { days: number; samples: number } | null {
+  const opens = item.unit_opens ?? []
+  const gaps: number[] = []
+  for (let i = 1; i < opens.length; i++) {
+    if (opens[i].n !== 1) continue
+    const g = (new Date(opens[i].at).getTime() - new Date(opens[i - 1].at).getTime()) / DAY_MS
+    if (g > 0.2) gaps.push(g)
+  }
+  const last = gaps.slice(-5)
+  if (last.length < 3) return null
+  const sorted = [...last].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  const m = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+  return { days: Math.round(m * 10) / 10, samples: last.length }
+}
+
+/** Suggest a new "one can lasts" when the real rate differs by 15% and at least 0.3 days. */
+export function unitRateSuggestion(item: StockItem): { days: number; samples: number } | null {
+  const l = learnedUnitDays(item)
+  const d = Number(item.unit_days ?? 0)
+  if (!l || d <= 0) return null
+  const diff = Math.abs(l.days - d)
+  return diff >= 0.3 - 1e-9 && diff / d >= 0.15 - 1e-9 ? l : null
+}
+
+/** "2 cans a day", "1 can a day", "½ can a day", "1 can every 3 days" */
+export function unitRateText(label: UnitLabel | null | undefined, days: number | null | undefined): string {
+  const d = Number(days ?? 0)
+  if (d <= 0) return ''
+  const perDay = Math.round((1 / d) * 100) / 100
+  if (d <= 1) return `${fmtNum(perDay)} ${unitWord(label, perDay)} a day`
+  if (perDay === 0.5 || perDay === 0.25) return `${fmtNum(perDay)} ${unitWord(label, 1)} a day`
+  return `1 ${unitWord(label, 1)} every ${fmtNum(d)} days`
+}
+
+/** "today", "yesterday", "3 days ago" */
+export function agoText(at: Date, now = new Date()): string {
+  const n = daysBetween(toISO(at), toISO(now))
+  if (n <= 0) return 'today'
+  if (n === 1) return 'yesterday'
+  return `${n} days ago`
+}
+
 export interface ItemInfo {
   daysLeft: number | null
   packDays: number | null
@@ -164,6 +270,8 @@ export interface ItemInfo {
   lowAsNeeded: boolean
   /** food only: estimated kg left right now */
   kgNow: number | null
+  /** food tracked by units only */
+  units: UnitState | null
 }
 
 export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
@@ -174,15 +282,24 @@ export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
   let lowAsNeeded = false
   const active = item.status === 'active'
 
-  if (item.type === 'food') {
+  const byUnits = isUnitFood(item)
+  let units: UnitState | null = null
+  if (byUnits) {
+    units = unitState(item, now)
+    const d = Number(item.unit_days ?? 0)
+    packDays = item.pack_units && d > 0 ? Math.floor(Number(item.pack_units) * d) : null
+    daysLeft = units.daysLeft
+  } else if (item.type === 'food') {
     const g = foodGramsPerDay(item)
     packDays = item.pack_kg && g > 0 ? Math.floor((Number(item.pack_kg) * 1000) / g) : null
   } else if (item.type === 'supply') {
     packDays = item.pack_days ?? null
   }
   let kgNow: number | null = null
-  if (item.type === 'food') kgNow = foodKgNow(item, now)
-  if (item.type === 'food' && kgNow != null) {
+  if (item.type === 'food' && !byUnits) kgNow = foodKgNow(item, now)
+  if (byUnits) {
+    // daysLeft set above
+  } else if (item.type === 'food' && kgNow != null) {
     const g = foodGramsPerDay(item)
     daysLeft = g > 0 ? Math.max(0, Math.floor((kgNow * 1000) / g)) : null
   } else if (item.type !== 'med' && packDays != null) {
@@ -212,7 +329,8 @@ export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
     due: active && ((orderIn != null && orderIn <= 7) || lowAsNeeded),
     countNow,
     lowAsNeeded,
-    kgNow
+    kgNow,
+    units
   }
 }
 

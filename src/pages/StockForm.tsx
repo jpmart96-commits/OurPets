@@ -2,15 +2,25 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
-import { addDays, fmtShort, parseISO, todayISO } from '../lib/dates'
-import { UNIT_PLURAL, fmtKg, fmtNum, itemInfo, ordinal } from '../lib/calc'
-import type { Frequency, ItemStatus, ItemType, MedForm, StockItem } from '../lib/types'
+import { addDays, daysBetween, fmtShort, parseISO, toISO, todayISO } from '../lib/dates'
+import { UNIT_PLURAL, fmtKg, fmtNum, itemInfo, ordinal, unitRateSuggestion, unitRateText, unitState, unitWord } from '../lib/calc'
+import type { Frequency, ItemStatus, ItemType, MedForm, StockItem, TrackBy, UnitLabel } from '../lib/types'
 import { removePhoto, signPhotos, uploadPhoto } from '../lib/photos'
 import { looksLikeUrl, lookupProduct, type LookupResult, type LookupVariant } from '../lib/lookup'
-import { Chips, ErrorNote, PhotoPicker, Segmented, useGoBack } from '../components/ui'
+import { Chips, ErrorNote, FieldLabel, InfoTip, PhotoPicker, Segmented, useGoBack } from '../components/ui'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DEFAULT_TIMES = ['08:00', '20:00', '14:00', '23:00']
+const RATE_PRESETS = [{ days: 0.5, label: '2 a day' }, { days: 1, label: '1 a day' }, { days: 2, label: '½ a day' }, { days: 3, label: '⅓ a day' }]
+
+/** A date from the form → a timestamp: now if it's today, otherwise that day at the current time of day. */
+function openedAtFromDate(iso: string): string {
+  const now = new Date()
+  if (!iso || iso >= todayISO()) return now.toISOString()
+  const d = parseISO(iso)
+  d.setHours(now.getHours(), now.getMinutes(), 0, 0)
+  return d.toISOString()
+}
 
 export default function StockForm() {
   const { id } = useParams()
@@ -42,6 +52,16 @@ export default function StockForm() {
   const [openedOn, setOpenedOn] = useState(todayISO())
   const [leftKg, setLeftKg] = useState('')
   const [leftInitial, setLeftInitial] = useState('')
+  // food tracked by units (cans, pouches…)
+  const [trackBy, setTrackBy] = useState<TrackBy>('weight')
+  const [unitLabel, setUnitLabel] = useState<UnitLabel>('can')
+  const [packUnits, setPackUnits] = useState('')
+  const [unitDays, setUnitDays] = useState('')
+  const [unitDaysInitial, setUnitDaysInitial] = useState('')
+  const [unitsLeft, setUnitsLeft] = useState('')
+  const [unitsLeftInitial, setUnitsLeftInitial] = useState('')
+  const [curOpened, setCurOpened] = useState(todayISO())
+  const [curOpenedInitial, setCurOpenedInitial] = useState('')
   // med
   const [form, setForm] = useState<MedForm>('tablet')
   const [dose, setDose] = useState('1')
@@ -73,6 +93,16 @@ export default function StockForm() {
     setLead(e.lead_days); setPackKg(e.pack_kg != null ? String(e.pack_kg) : ''); setPackDays(e.pack_days != null ? String(e.pack_days) : '')
     setOpenedOn(e.opened_on ?? todayISO())
     if (e.type === 'food') {
+      setTrackBy(e.track_by ?? 'weight'); setUnitLabel(e.unit_label ?? 'can')
+      setPackUnits(e.pack_units != null ? String(e.pack_units) : '')
+      const ud = e.unit_days != null ? String(Number(e.unit_days)) : ''
+      setUnitDays(ud); setUnitDaysInitial(ud)
+      if (e.track_by === 'units') {
+        const st = unitState(e)
+        setUnitsLeft(String(st.unopened)); setUnitsLeftInitial(String(st.unopened))
+        const od = st.openedAt ? toISO(st.openedAt) : todayISO()
+        setCurOpened(od); setCurOpenedInitial(od)
+      }
       const k = itemInfo(e).kgNow
       const v = k != null ? String(Math.round(k * 100) / 100) : ''
       setLeftKg(v); setLeftInitial(v)
@@ -107,6 +137,10 @@ export default function StockForm() {
   const isMed = type === 'med', isFood = type === 'food', isSupply = type === 'supply'
   const unit = UNIT_PLURAL[form]
   const unitCap = unit[0].toUpperCase() + unit.slice(1)
+  const byUnits = isFood && trackBy === 'units'
+  const uOne = unitWord(unitLabel, 1), uMany = unitWord(unitLabel, 2)
+  const uManyCap = uMany[0].toUpperCase() + uMany.slice(1)
+  const learned = existing && existing.track_by === 'units' ? unitRateSuggestion(existing) : null
 
   const summary = useMemo(() => {
     const where = source === 'vet' ? 'vet' : stores.find((s) => s.id === storeId)?.name ?? 'shopping'
@@ -123,6 +157,19 @@ export default function StockForm() {
         txt: `${b ? `A new box of ${fmtNum(b)} lasts about ${Math.floor(b / per)} days. ` : ''}You'll be reminded on ${fmtShort(addDays(todayISO(), Math.max(0, left - lead)))} and it goes on your ${where} list.`
       }
     }
+    if (isFood && trackBy === 'units') {
+      const d = n(unitDays), P = Math.round(n(packUnits))
+      const U = unitsLeft.trim() ? Math.round(n(unitsLeft)) : Math.max(0, P - 1)
+      if (!d) return { big: `How long does one ${uOne} last?`, txt: `Add how many days one ${uOne} lasts to see when you'll run out.` }
+      const e = Math.max(0, daysBetween(curOpened || todayISO(), todayISO()))
+      const leftDays = Math.floor(Math.max(0, (U + 1) * d - e))
+      const packLasts = P ? Math.floor(P * d) : 0
+      const perDay = n(price) && packLasts ? ` That's about €${(n(price) / (P * d)).toFixed(2)} a day.` : ''
+      return {
+        big: `${U} ${U === 1 ? uOne : uMany} unopened · about ${leftDays} days`,
+        txt: `${packLasts ? `A pack of ${P} lasts about ${packLasts} days (${unitRateText(unitLabel, d)}).` : ''}${perDay} You'll be reminded on ${fmtShort(addDays(todayISO(), Math.max(0, leftDays - lead)))} and it goes on your ${where} list.`
+      }
+    }
     if (isFood) {
       const g = petIds.reduce((s, p) => s + n(grams[p] ?? ''), 0)
       const days = g > 0 ? Math.floor((n(packKg) * 1000) / g) : 0
@@ -137,7 +184,7 @@ export default function StockForm() {
     }
     const days = n(packDays)
     return days ? { big: `One pack lasts about ${days} days`, txt: `You'll get a reminder ${lead} days before it runs out and it goes on your ${where} list.` } : { big: 'How long does a pack last?', txt: 'Add the number of days one pack lasts.' }
-  }, [leftKg, isMed, isFood, dose, onHand, boxSize, freq, times, status, alertAt, unit, lead, source, storeId, stores, petIds, grams, packKg, price, packDays])
+  }, [trackBy, unitDays, packUnits, unitsLeft, curOpened, unitLabel, uOne, uMany, leftKg, isMed, isFood, dose, onHand, boxSize, freq, times, status, alertAt, unit, lead, source, storeId, stores, petIds, grams, packKg, price, packDays])
 
   if (existing && existing.owner_id !== userId) {
     return (
@@ -165,6 +212,11 @@ export default function StockForm() {
     else if (base.name) setName(base.name.includes(v.label) ? base.name : `${base.name.replace(/\s+\d+(?:[.,]\d+)?\s*(?:kg|g)\b.*$/i, '')} ${v.label}`.trim())
     if (v.price != null) setPrice(String(v.price))
     if (v.pack_kg) setPackKg(String(v.pack_kg))
+    if (v.pack_units && (type === 'food' || base.type === 'food')) {
+      setTrackBy('units'); setPackUnits(String(v.pack_units))
+      if (v.unit_label ?? base.unit_label) setUnitLabel((v.unit_label ?? base.unit_label)!)
+      if (!existing) setUnitsLeft(String(Math.max(0, v.pack_units - 1)))
+    }
     if (v.units) setBoxSize(String(v.units))
     if (v.url) { setLookedUp(v.url); setProductUrl(v.url) }
   }
@@ -182,6 +234,11 @@ export default function StockForm() {
     if (r.name) setName(r.name)
     if (r.price != null) setPrice(String(r.price))
     if (t === 'food' && r.pack_kg) setPackKg(String(r.pack_kg))
+    if (t === 'food' && r.pack_units) {
+      setTrackBy('units'); setPackUnits(String(r.pack_units))
+      if (r.unit_label) setUnitLabel(r.unit_label)
+      if (!existing && !unitsLeft.trim()) setUnitsLeft(String(Math.max(0, r.pack_units - 1)))
+    }
     if (t === 'med') {
       if (r.form) setForm(r.form)
       if (r.units) { setBoxSize(String(r.units)); if (!onHand.trim()) setOnHand(String(r.units)) }
@@ -220,6 +277,26 @@ export default function StockForm() {
     if (isFood || isSupply) {
       row.opened_on = isFood ? (existing?.opened_on ?? todayISO()) : openedOn || todayISO()
       if (isFood) {
+        row.track_by = trackBy
+        row.unit_label = unitLabel
+        row.pack_units = Math.round(num(packUnits) ?? 0) || null
+        row.unit_days = num(unitDays)
+      }
+      if (isFood && trackBy === 'units') {
+        const countChanged = unitsLeft !== unitsLeftInitial || curOpened !== curOpenedInitial
+        const wasUnits = existing?.track_by === 'units'
+        if (!existing || !wasUnits || countChanged) {
+          const P = Math.round(num(packUnits) ?? 0)
+          row.units_left = unitsLeft.trim() ? Math.max(0, Math.round(num(unitsLeft) ?? 0)) : Math.max(0, P - 1)
+          row.unit_opened_at = openedAtFromDate(curOpened)
+        } else if (unitDays !== unitDaysInitial) {
+          // new rate applies from now; what was used so far stays
+          const st = unitState(existing)
+          row.units_left = st.unopened
+          row.unit_opened_at = (st.openedAt ?? new Date()).toISOString()
+        }
+      }
+      if (isFood && trackBy === 'weight') {
         const g0 = existing ? existing.stock_item_pets.reduce((a, p) => a + Number(p.daily_grams ?? 0), 0) : -1
         const g1 = petIds.reduce((a, p) => a + (num(grams[p] ?? '') ?? 0), 0)
         const packChanged = existing && String(existing.pack_kg ?? '') !== String(num(packKg) ?? '')
@@ -392,21 +469,22 @@ export default function StockForm() {
             )}
             <div className="grid2" style={{ gap: 12 }}>
               <div className="field"><label htmlFor="sb">{unitCap} per box</label><input id="sb" className="input" inputMode="decimal" value={boxSize} onChange={(e) => setBoxSize(e.target.value)} /></div>
-              <div className="field"><label htmlFor="sh">You have now</label><input id="sh" className="input" inputMode="decimal" value={onHand} onChange={(e) => setOnHand(e.target.value)} required /></div>
+              <div className="field"><FieldLabel htmlFor="sh" tip={`Count what's in the box right now. The app then takes off each scheduled dose on its own, so you only count again if it drifts.`}>You have now</FieldLabel><input id="sh" className="input" inputMode="decimal" value={onHand} onChange={(e) => setOnHand(e.target.value)} required /></div>
             </div>
             {freq === 'as_needed' && (
               <div className="row">
                 <label htmlFor="sa" className="grow" style={{ fontSize: 14 }}>Alert me when this many are left</label>
+                <InfoTip label="About as-needed alerts">As-needed meds have no schedule, so there's no countdown. Each dose you log takes one off, and you're alerted at this number.</InfoTip>
                 <input id="sa" className="input num" inputMode="decimal" value={alertAt} onChange={(e) => setAlertAt(e.target.value)} />
               </div>
             )}
             <div className="field">
-              <span className="label">Status</span>
+              <FieldLabel as="span" tip={<><b>Active</b>: counts down and reminds you.<br /><b>Paused</b>: a break in treatment; no countdown, no reminders.<br /><b>Finished</b>: leaves the stock list but stays in the pet's history.</>}>Status</FieldLabel>
               <Segmented<ItemStatus> label="Status" value={status} onChange={setStatus}
                 options={[{ id: 'active', label: 'Active' }, { id: 'paused', label: 'Paused' }, { id: 'finished', label: 'Finished' }]} />
             </div>
             <div className="field">
-              <span className="label">Buy from</span>
+              <FieldLabel as="span" tip="Prescription meds come from the vet. In the Shop tab they get “Ask vet” instead of an add-to-cart button.">Buy from</FieldLabel>
               <Segmented<'store' | 'vet'> label="Buy from" value={source} onChange={setSource}
                 options={[{ id: 'store', label: 'Store' }, { id: 'vet', label: 'Vet (prescription)' }]} />
             </div>
@@ -429,16 +507,69 @@ export default function StockForm() {
         )}
 
         {isFood && (
+          <div className="field">
+            <FieldLabel as="span" tip={<>Bags of kibble: <b>by weight</b>. The app uses how many grams each pet eats a day.<br />Cans, pouches or trays you don't weigh: <b>by units</b>. You say how long one lasts, and tap “Opened a new can” when you open one.</>}>How do you track it?</FieldLabel>
+            <Segmented<TrackBy> label="How do you track it?" value={trackBy} onChange={setTrackBy}
+              options={[{ id: 'weight', label: 'By weight (bags)' }, { id: 'units', label: 'By units (cans…)' }]} />
+          </div>
+        )}
+
+        {byUnits && (
+          <>
+            <div className="field">
+              <span className="label">What comes in the pack</span>
+              <Chips<UnitLabel> label="What comes in the pack" dark value={unitLabel} onChange={setUnitLabel}
+                options={[{ id: 'can', label: 'Cans' }, { id: 'pouch', label: 'Pouches' }, { id: 'tray', label: 'Trays' }, { id: 'sachet', label: 'Sachets' }]} />
+            </div>
+            <div className="grid2" style={{ gap: 12 }}>
+              <div className="field"><label htmlFor="su1">{uManyCap} per pack</label><input id="su1" className="input" inputMode="numeric" value={packUnits} onChange={(e) => setPackUnits(e.target.value)} placeholder="e.g. 12" /></div>
+              <div className="field"><label htmlFor="sp4">Price per pack (€)</label><input id="sp4" className="input" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
+            </div>
+            <div className="field">
+              <FieldLabel htmlFor="sud" tip={<>How many days until you open the next {uOne}, for all the pets that eat it together. If they get half a {uOne} a day, that's 2. Fractions like 1.5 are fine.<br />Not sure? Guess. After a few “Opened a new {uOne}” taps, the app tells you the real number.</>}>One {uOne} lasts (days)</FieldLabel>
+              <div className="row" style={{ gap: 8 }}>
+                <input id="sud" className="input num" inputMode="decimal" value={unitDays} onChange={(e) => setUnitDays(e.target.value)} placeholder="e.g. 2" />
+                <div className="chips" role="group" aria-label="Quick picks" style={{ flexWrap: 'wrap' }}>
+                  {RATE_PRESETS.map((r) => (
+                    <button key={r.days} type="button" className={'chip' + (parseFloat(unitDays.replace(',', '.')) === r.days ? ' on' : '')} aria-pressed={parseFloat(unitDays.replace(',', '.')) === r.days}
+                      onClick={() => setUnitDays(String(r.days))}>{r.label}</button>
+                  ))}
+                </div>
+              </div>
+              {parseFloat(unitDays.replace(',', '.')) > 0 && <div className="hint">That's {unitRateText(unitLabel, parseFloat(unitDays.replace(',', '.')))}.</div>}
+              {learned && (
+                <div className="hint row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <span>Your last {learned.samples} {uMany} lasted about {fmtNum(learned.days)} days each.</span>
+                  <button type="button" className="link-btn" style={{ minHeight: 32, padding: 0 }} onClick={() => setUnitDays(String(learned.days))}>Use {fmtNum(learned.days)}</button>
+                </div>
+              )}
+            </div>
+            <div className="grid2" style={{ gap: 12 }}>
+              <div className="field">
+                <FieldLabel htmlFor="sul" tip={<>Closed {uMany} only; don't count the open one. From here the app takes one off every time a {uOne} should be finished.</>}>Unopened {uMany}</FieldLabel>
+                <input id="sul" className="input" inputMode="numeric" value={unitsLeft} onChange={(e) => setUnitsLeft(e.target.value)}
+                  placeholder={packUnits ? `e.g. ${Math.max(0, Math.round(parseFloat(packUnits) || 1) - 1)}` : 'e.g. 11'} />
+              </div>
+              <div className="field">
+                <FieldLabel htmlFor="suo" tip={<>When you opened the {uOne} you're using now. The countdown for it starts here.</>}>Current {uOne} opened</FieldLabel>
+                <input id="suo" className="input" type="date" value={curOpened} max={todayISO()} onChange={(e) => setCurOpened(e.target.value)} />
+              </div>
+            </div>
+          </>
+        )}
+
+        {isFood && !byUnits && (
           <>
             <div className="grid2" style={{ gap: 12 }}>
               <div className="field"><label htmlFor="sk">Pack size (kg)</label><input id="sk" className="input" inputMode="decimal" value={packKg} onChange={(e) => setPackKg(e.target.value)} /></div>
               <div className="field"><label htmlFor="sp">Price (€)</label><input id="sp" className="input" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
             </div>
-            {petIds.map((pid) => {
+            {petIds.map((pid, i) => {
               const p = pets.find((x) => x.id === pid)
               return (
                 <div className="row" key={pid}>
                   <label htmlFor={`g-${pid}`} className="grow" style={{ fontSize: 14 }}>{p?.name} eats per day (g)</label>
+                  {i === 0 && <InfoTip label="About grams per day">Check the feeding guide on the bag, or weigh one meal and multiply by meals a day. The app uses the total for all pets to count down the bag.</InfoTip>}
                   <input id={`g-${pid}`} className="input num" inputMode="numeric" value={grams[pid] ?? ''} onChange={(e) => setGrams({ ...grams, [pid]: e.target.value })} />
                 </div>
               )
@@ -456,9 +587,9 @@ export default function StockForm() {
           <div className="field" style={{ maxWidth: '50%' }}><label htmlFor="sp3">Price per box (€)</label><input id="sp3" className="input" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
         )}
 
-        {isFood && (
+        {isFood && !byUnits && (
           <div className="field">
-            <label htmlFor="sleft">Left right now (kg)</label>
+            <FieldLabel htmlFor="sleft" tip="Weigh the bag (or guess). The app counts down from this amount using how much your pets eat each day. Change it any time the number drifts.">Left right now (kg)</FieldLabel>
             <div className="row" style={{ gap: 8 }}>
               <input id="sleft" className="input" inputMode="decimal" value={leftKg} onChange={(e) => setLeftKg(e.target.value)}
                 placeholder={packKg ? `Full bag · ${packKg} kg` : 'e.g. 4.35'} />
@@ -477,7 +608,9 @@ export default function StockForm() {
 
         <div className="row between">
           <div>
-            <div className="label">Remind me before it runs out</div>
+            <div className="label-row"><span className="label">Remind me before it runs out</span>
+              <InfoTip label="About the reminder">How many days an order takes to arrive, plus a margin. The item shows up in the Shop tab that many days before it runs out, and in the week before that as “order soon”.</InfoTip>
+            </div>
             <div className="small muted" style={{ marginTop: 2 }}>How long it takes to get more</div>
           </div>
           <div className="stepper">

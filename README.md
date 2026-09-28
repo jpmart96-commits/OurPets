@@ -34,6 +34,8 @@ Deploy changes with `supabase functions deploy product-lookup`.
 ## How the numbers work
 
 - **Food:** days per pack = pack kg × 1000 ÷ total grams per day; days left counts down from the date the pack was opened.
+- **Food by units** (cans, pouches, trays you don't weigh): you set how many days one unit lasts (for all pets together). The app assumes a new unit is opened every N days, so days left = (unopened + 1) × N − days since the current one was opened. “Opened a new can” takes one off and restarts the clock; if it's been 1.75× the usual time or more, the app asks whether that was one can or some weren't logged. After 3+ single taps it compares the median gap with your setting and offers to update it when they differ by 15% and 0.3 days or more. “+1 pack” adds a pack; “Count cans” fixes the number. Product links like “12 x 135 g” switch the item to units automatically.
+- **(i) tips:** every non-obvious field or number has an (i) next to it. It opens on mouse-over, on tap (phones) and with the keyboard (`InfoTip` / `FieldLabel` in `src/components/ui.tsx`). New fields should get one when their meaning isn't obvious.
 - **Supplies:** "one pack lasts N days", counted from the date opened.
 - **Meds:** on hand at the last count, minus every scheduled dose since then. Days left = days until the next scheduled dose can't be covered. As-needed meds count down only when a dose is logged and alert at a threshold.
 - **Reorder:** an item is due when days left − delivery lead time ≤ 7 days.

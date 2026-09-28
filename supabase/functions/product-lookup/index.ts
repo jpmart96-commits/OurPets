@@ -143,7 +143,7 @@ function cleanTitle(t: string, site?: string): string {
 }
 
 // "12 kg", "2 x 12 kg", "400g", "10 L", "60 comprimidos", "24 x 85 g"
-function parseSize(text: string): { pack_kg?: number; units?: number; pack_text?: string } {
+function parseSize(text: string): { pack_kg?: number; units?: number; pack_text?: string; pack_units?: number } {
   // drop weight ranges like "20-40 kg" (dog size, not pack size)
   const t = text.toLowerCase().replace(/,/g, '.').replace(/\d+(?:\.\d+)?\s*(?:-|a|to)\s*\d+(?:\.\d+)?\s*kg/g, ' ')
   // "10 kg + 2 kg grátis" → 12 kg, "2 x (10 kg + 2kg grátis!)" → 24 kg
@@ -154,10 +154,14 @@ function parseSize(text: string): { pack_kg?: number; units?: number; pack_text?
     const total = n * (kgOf(bonus[2], bonus[3]) + kgOf(bonus[4], bonus[5]))
     return { pack_kg: +total.toFixed(3), pack_text: `${+total.toFixed(3)} kg` }
   }
-  const multi = t.match(/(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*(kg|g)\b/)
+  // "12 x 135 g", "24 x 85 g", "6 x 400 ml": multipacks of cans/pouches. Small units → also pack_units.
+  const multi = t.match(/(\d+)\s*x\s*(\d+(?:\.\d+)?)\s*(kg|g|ml)\b/)
   if (multi) {
     const n = Number(multi[1]), v = Number(multi[2])
-    return { pack_kg: +(n * (multi[3] === 'kg' ? v : v / 1000)).toFixed(3), pack_text: multi[0] }
+    const eachKg = multi[3] === 'kg' ? v : v / 1000
+    const out: { pack_kg?: number; units?: number; pack_text?: string; pack_units?: number } = { pack_kg: +(n * eachKg).toFixed(3), pack_text: multi[0] }
+    if (n > 1 && eachKg <= 1) out.pack_units = n
+    return out
   }
   const kg = t.match(/(\d+(?:\.\d+)?)\s*kg\b/)
   if (kg) return { pack_kg: Number(kg[1]), pack_text: kg[0] }
@@ -168,6 +172,15 @@ function parseSize(text: string): { pack_kg?: number; units?: number; pack_text?
   const l = t.match(/(\d+(?:\.\d+)?)\s*(l|litros?|liters?)\b/)
   if (l) return { pack_text: l[0] }
   return {}
+}
+
+// what the units in a multipack are, for food tracked by units
+function unitLabel(text: string): 'can' | 'pouch' | 'tray' | 'sachet' {
+  const t = text.toLowerCase()
+  if (/saquetas?|pouch|bolsas?|frischebeutel/.test(t)) return 'pouch'
+  if (/tabuleiros?|terrinas?|barquetas?|trays?|tarrinas?|schalen/.test(t)) return 'tray'
+  if (/sachets?|sobres?/.test(t)) return 'sachet'
+  return 'can'
 }
 
 function medForm(text: string): string | undefined {
@@ -214,7 +227,7 @@ function guessType(name: string, context: string, productType?: string): 'food' 
   return 'food'
 }
 
-interface Variant { label: string; name?: string; price?: number; url?: string; image?: string; pack_kg?: number; units?: number; pack_text?: string }
+interface Variant { label: string; name?: string; price?: number; url?: string; image?: string; pack_kg?: number; units?: number; pack_text?: string; pack_units?: number }
 
 function extract(html: string, pageUrl: string) {
   const ld: Json[] = []
@@ -286,11 +299,17 @@ function extract(html: string, pageUrl: string) {
   const pr = { ...props(group), ...props(product) }
   const productType = pr['product_type assortment'] ?? pr['product_type'] ?? firstString(group?.category) ?? firstString(product?.category)
   const context = [firstString(group?.category), firstString(product?.category), page.pathname, description].filter(Boolean).join(' ')
-  const type = guessType(name ?? '', context, productType)
+  let type = guessType(name ?? '', context, productType)
+  // "12 x 135 g" multipacks are wet food (cans/pouches), even when filed under supplements or diets
+  if (type !== 'food' && size.pack_units && size.pack_kg && size.pack_kg / size.pack_units >= 0.04 &&
+    !/areia|litter|champ[ôo]|shampoo|higiene|toalhit/.test((name ?? '').toLowerCase())) type = 'food'
   if (type === 'med') delete size.pack_kg
+  if (type !== 'food') delete size.pack_units
+  const unit_label = type === 'food' && (size.pack_units || variants.some((v) => v.pack_units)) ? unitLabel([name, page.pathname].join(' ')) : undefined
   return {
     name, brand, image, price, currency, description,
     ...size,
+    unit_label,
     type,
     form: type === 'med' ? medForm([name, description].join(' ')) : undefined,
     site: site ?? page.hostname.replace(/^www\./, ''),

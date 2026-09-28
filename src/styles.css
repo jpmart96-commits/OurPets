@@ -218,3 +218,11 @@ input[type="date"].input::-webkit-date-and-time-value, input[type="time"].input:
 input[type="date"].input::-webkit-calendar-picker-indicator { margin-left: auto; }
 .file-pick { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 14px; border-radius: 12px; border: 1.5px dashed var(--dash); background: var(--surface); cursor: pointer; }
 .file-pick .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* (i) info tips */
+.label-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.infotip { display: inline-flex; vertical-align: middle; flex-shrink: 0; }
+.infotip-btn { position: relative; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 12px; background: transparent; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; cursor: help; }
+.infotip-btn::after { content: ''; position: absolute; inset: -10px; }
+.infotip-btn:hover, .infotip-btn[aria-expanded="true"] { color: var(--accent); }
+.infotip-pop { position: fixed; z-index: 60; width: max-content; max-width: min(280px, calc(100vw - 24px)); padding: 10px 12px; border-radius: 10px; background: var(--ink); color: #fff; font-size: 13px; font-weight: 400; line-height: 1.45; letter-spacing: normal; text-transform: none; text-align: left; white-space: normal; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); }

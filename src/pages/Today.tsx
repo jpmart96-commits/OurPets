@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import { addDays, daysBetween, fmtDateTime, fmtTime, fmtToday, greeting, relDay, todayISO } from '../lib/dates'
-import { fmtNum, isDueOn, itemInfo, medTimes, nextDue, unitFor } from '../lib/calc'
-import { Avatar, Empty, ErrorNote, ItemThumb, Loading, OwnerSwitch, Screen } from '../components/ui'
+import { fmtNum, isDueOn, isUnitFood, itemInfo, medTimes, nextDue, unitFor, unitWord } from '../lib/calc'
+import { Avatar, Empty, ErrorNote, InfoTip, ItemThumb, Loading, OwnerSwitch, Screen } from '../components/ui'
+import { UnitFood } from '../components/UnitFood'
 import { IconCalendar, IconCart, IconCheck, IconPill } from '../components/icons'
 
 export default function Today() {
@@ -43,6 +44,12 @@ export default function Today() {
     .sort((a, b) => (a.info.orderIn ?? -99) - (b.info.orderIn ?? -99)),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [items, app.filter])
+
+  // food tracked by units that I feed: one-tap "Opened a new can"
+  const cans = useMemo(() => items
+    .filter((it) => it.owner_id === userId && it.status === 'active' && isUnitFood(it) && it.unit_days)
+    .map((it) => ({ it, info: itemInfo(it) })),
+  [items, userId])
 
   const upcoming = useMemo(() => {
     const out: { key: string; title: string; pet: string; when: string; sort: string }[] = []
@@ -130,6 +137,26 @@ export default function Today() {
         </section>
       )}
 
+      {cans.length > 0 && (
+        <section className="card" aria-labelledby="cans-h">
+          <div className="card-head">
+            <h2 id="cans-h" style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              {cans.every(({ it }) => it.unit_label === cans[0].it.unit_label) ? `Open ${unitWord(cans[0].it.unit_label)}` : 'Open cans & pouches'}
+              <InfoTip label="About this card">Tap “Opened a new {unitWord(cans[0].it.unit_label, 1)}” when you open one, so the count stays right. If you forget, the app keeps counting down on its own.</InfoTip>
+            </h2>
+          </div>
+          {cans.map(({ it, info }) => (
+            <div key={it.id} className="card-row" style={{ alignItems: 'flex-start' }}>
+              <ItemThumb type={it.type} src={app.photoUrl(it.photo_path)} />
+              <div className="grow stack-sm" style={{ gap: 6 }}>
+                <Link to={`/stock/${it.id}`} className="row-title" style={{ color: 'inherit', textDecoration: 'none' }}>{it.name}</Link>
+                <UnitFood item={it} info={info} mine compact reload={reload} />
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
       {low.length > 0 && (
         <section className="card" aria-labelledby="low-h">
           <div className="card-head"><h2 id="low-h">Running low</h2></div>
@@ -166,7 +193,7 @@ export default function Today() {
         </section>
       )}
 
-      {myPets.length > 0 && slots.length === 0 && low.length === 0 && upcoming.length === 0 && (
+      {myPets.length > 0 && slots.length === 0 && low.length === 0 && upcoming.length === 0 && cans.length === 0 && (
         <Empty title="All clear">
           <div className="hint">Nothing due today. Add medication or food to {myPets[0].name}'s stock to get reminders.</div>
           <Link to="/stock/new?type=med" className="btn ghost" style={{ alignSelf: 'flex-start' }}><IconPill size={18} />Add medication</Link>

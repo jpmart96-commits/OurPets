@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { IconBack, IconBox, IconBowl, IconCamera, IconCart, IconHome, IconPaw, IconPill } from './icons'
 import { useApp, type OwnerFilter } from '../lib/store'
 import type { ItemType } from '../lib/types'
@@ -190,6 +190,80 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
     <div className="empty">
       <div className="empty-title">{title}</div>
       {children}
+    </div>
+  )
+}
+
+/**
+ * (i) button with a short explanation. Opens on mouse-over (desktop), on tap (phones) and on keyboard focus + Enter.
+ * Tap again, tap elsewhere, scroll or press Escape to close.
+ */
+export function InfoTip({ children, label = 'More info' }: { children: ReactNode; label?: string }) {
+  const [open, setOpen] = useState(false)
+  const [pinned, setPinned] = useState(false)
+  const [pos, setPos] = useState<CSSProperties>({ visibility: 'hidden' })
+  const id = useId()
+  const wrap = useRef<HTMLSpanElement>(null)
+  const btn = useRef<HTMLButtonElement>(null)
+  const pop = useRef<HTMLSpanElement>(null)
+
+  useLayoutEffect(() => {
+    if (!open || !btn.current || !pop.current) return
+    const r = btn.current.getBoundingClientRect()
+    const w = pop.current.offsetWidth, h = pop.current.offsetHeight
+    const vw = window.innerWidth, vh = window.innerHeight
+    const left = Math.min(Math.max(12, r.left + r.width / 2 - w / 2), vw - w - 12)
+    const below = r.bottom + 8
+    const top = below + h > vh - 12 && r.top - h - 8 > 12 ? r.top - h - 8 : below
+    setPos({ left, top })
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const close = () => { setOpen(false); setPinned(false); setPos({ visibility: 'hidden' }) }
+    const onDown = (e: PointerEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) close() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [open])
+
+  return (
+    <span className="infotip" ref={wrap}
+      onPointerEnter={(e) => { if (e.pointerType === 'mouse') setOpen(true) }}
+      onPointerLeave={(e) => { if (e.pointerType === 'mouse' && !pinned) { setOpen(false); setPos({ visibility: 'hidden' }) } }}>
+      <button ref={btn} type="button" className="infotip-btn" aria-label={label} aria-expanded={open} aria-describedby={open ? id : undefined}
+        onClick={(e) => {
+          e.preventDefault(); e.stopPropagation()
+          const next = !(open && pinned)
+          setPinned(next); setOpen(next)
+          if (!next) setPos({ visibility: 'hidden' })
+        }}>
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.4" />
+          <circle cx="8" cy="4.9" r="0.95" fill="currentColor" />
+          <path d="M8 7.2v4.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </button>
+      {open && <span ref={pop} role="tooltip" id={id} className="infotip-pop" style={pos}>{children}</span>}
+    </span>
+  )
+}
+
+/** A field label with an optional (i) explanation next to it. */
+export function FieldLabel({ htmlFor, children, tip, as = 'label' }: { htmlFor?: string; children: ReactNode; tip?: ReactNode; as?: 'label' | 'span' }) {
+  const text = typeof children === 'string' ? children : 'this'
+  return (
+    <div className="label-row">
+      {as === 'label' ? <label htmlFor={htmlFor} className="label">{children}</label> : <span className="label">{children}</span>}
+      {tip && <InfoTip label={`About ${text.toLowerCase()}`}>{tip}</InfoTip>}
     </div>
   )
 }
