@@ -90,6 +90,14 @@ export function slotState(date: string, time: string, log: DoseLog | undefined, 
   return slotMoment(date, time) <= now ? 'auto' : 'pending'
 }
 
+/** What a tap turns a dose into (mirrors cycleDose, so the tick can change before the server answers). */
+export function nextSlotState(state: SlotState, future: boolean): SlotState {
+  if (state === 'pending') return 'given'
+  if (state === 'given' && future) return 'pending'
+  if (state === 'missed') return 'given'
+  return 'missed'
+}
+
 /** Pill count is automatic; a missed dose gives its pill back (only if it was already counted). */
 async function adjustCount(item: StockItem, date: string, time: string, delta: number) {
   if (!item.counted_at || slotMoment(date, time) <= new Date(item.counted_at)) return { error: null }

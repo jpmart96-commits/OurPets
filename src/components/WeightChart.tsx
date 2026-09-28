@@ -39,15 +39,15 @@ export default function WeightChart({ points }: { points: Point[] }) {
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Weight from ${fmtDate(points[0].date)} to ${fmtDate(points[points.length - 1].date)}`}>
         {ticks.map((v) => (
           <g key={v}>
-            <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="#ECE8DF" />
-            <text x={0} y={y(v) + 4} fontSize="11" fill="#5E6660">{Number.isInteger(v) ? v : v.toFixed(1)}</text>
+            <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} style={{ stroke: 'var(--track)' }} />
+            <text x={0} y={y(v) + 4} fontSize="11" style={{ fill: 'var(--muted)' }}>{Number.isInteger(v) ? v : v.toFixed(1)}</text>
           </g>
         ))}
-        <path d={path} fill="none" stroke="#2F5D50" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={path} fill="none" style={{ stroke: 'var(--accent)' }} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
         {xy.map((p, i) => (
-          <circle key={i} cx={p.x} cy={p.y} r={i === s ? 6 : 4.5} fill="#2F5D50" stroke="#fff" strokeWidth="2" />
+          <circle key={i} cx={p.x} cy={p.y} r={i === s ? 6 : 4.5} style={{ fill: 'var(--accent)', stroke: 'var(--surface)' }} strokeWidth="2" />
         ))}
-        {labels.map((l) => <text key={l.x} x={l.x} y={H - 6} fontSize="11" fill="#5E6660" textAnchor="middle">{l.text}</text>)}
+        {labels.map((l) => <text key={l.x} x={l.x} y={H - 6} fontSize="11" style={{ fill: 'var(--muted)' }} textAnchor="middle">{l.text}</text>)}
       </svg>
       {xy.map((p, i) => (
         <button key={i} type="button" onClick={() => setSel(i)} aria-label={`${fmtDate(points[i].date)}: ${points[i].kg} kg`}

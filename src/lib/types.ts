@@ -44,6 +44,7 @@ export interface Pet {
   vet_name: string | null
   notes: string | null
   archived: boolean
+  created_at?: string
   photo_path: string | null
   vet_phone: string | null
   vet_address: string | null

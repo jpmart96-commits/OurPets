@@ -3,6 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 import { IconBack, IconBox, IconBowl, IconCamera, IconCart, IconHome, IconPaw, IconPill } from './icons'
 import { useApp, type OwnerFilter } from '../lib/store'
 import type { ItemType } from '../lib/types'
+import type { Tone } from '../lib/calc'
 
 export function TabBar() {
   const tabs = [
@@ -112,12 +113,81 @@ export function Toggle({ on, onChange, labelledBy }: { on: boolean; onChange: (v
   )
 }
 
-export function Bar({ pct, urgent, label }: { pct: number; urgent?: boolean; label: string }) {
+export function Bar({ pct, urgent, tone, label, thin }: { pct: number; urgent?: boolean; tone?: Tone; label: string; thin?: boolean }) {
+  const t = tone ?? (urgent ? 'now' : 'ok')
   return (
-    <div className="bar" role="img" aria-label={label}>
-      <div className={urgent ? 'urgent' : ''} style={{ width: `${pct}%` }} />
+    <div className={'bar' + (thin ? ' thin' : '')} role="img" aria-label={label}>
+      <div className={t === 'ok' ? '' : t === 'now' ? 'urgent' : 'soon'} style={{ width: `${pct}%` }} />
     </div>
   )
+}
+
+/** Days-left badge on the shared urgency scale. */
+export function ToneBadge({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return <span className={'badge tone-' + tone}>{children}</span>
+}
+
+/** A row of short facts separated by "·". The dot travels with the next fact, so a wrap never leaves one dangling. */
+export function Meta({ parts, className = '' }: { parts: (ReactNode | false | null | undefined | '')[]; className?: string }) {
+  return (
+    <div className={'row-sub meta ' + className}>
+      {parts.filter((x) => x !== false && x != null && x !== '').map((x, i) => <span key={i}>{x}</span>)}
+    </div>
+  )
+}
+
+/**
+ * Row background tinted with a pet's color (≈10% over the card; a bit more in dark mode, see --tint).
+ * An item shared by two or more pets blends their colors left to right.
+ */
+export function petTint(colors: string[]): CSSProperties | undefined {
+  const mix = (c: string) => `color-mix(in srgb, ${c} var(--tint), var(--surface))`
+  if (!colors.length) return undefined
+  if (colors.length === 1) return { background: mix(colors[0]) }
+  return { background: `linear-gradient(90deg, ${colors.map(mix).join(', ')})` }
+}
+
+/** Small colored dot that identifies a pet. */
+export function PetDot({ color }: { color: string }) {
+  return <span className="pet-dot" style={{ background: color }} aria-hidden="true" />
+}
+
+/** Circular progress, e.g. doses given today. */
+export function ProgressRing({ value, total, size = 22 }: { value: number; total: number; size?: number }) {
+  const r = (size - 4) / 2, c = 2 * Math.PI * r
+  const pct = total ? Math.min(1, value / total) : 0
+  return (
+    <svg className={'ring' + (pct >= 1 ? ' full' : '')} width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+      <circle cx={size / 2} cy={size / 2} r={r} className="ring-track" />
+      <circle cx={size / 2} cy={size / 2} r={r} className="ring-fill" strokeDasharray={c} strokeDashoffset={c * (1 - pct)} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+    </svg>
+  )
+}
+
+/** Height-animated show/hide (CSS grid 0fr ↔ 1fr). Content stays mounted so it can animate both ways. */
+export function Collapse({ open, children, id }: { open: boolean; children: ReactNode; id?: string }) {
+  return (
+    <div className={'collapse' + (open ? ' open' : '')} id={id}>
+      <div>{children}</div>
+    </div>
+  )
+}
+
+/** Check mark whose stroke draws itself when `draw` is set. */
+export function TickCheck({ size = 16, draw }: { size?: number; draw?: boolean }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={draw ? 'draw' : undefined}>
+      <path d="M5 12.5 10 17l9-10" pathLength={1} />
+    </svg>
+  )
+}
+
+/** Short vibration on Android (ignored where unsupported or when the user prefers reduced motion). */
+export function haptic(ms = 10) {
+  try {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    navigator.vibrate?.(ms)
+  } catch { /* not supported */ }
 }
 
 export function TypeIcon({ type, size = 20 }: { type: ItemType; size?: number }) {
@@ -126,9 +196,13 @@ export function TypeIcon({ type, size = 20 }: { type: ItemType; size?: number })
   return <IconBox size={size} />
 }
 
-export function Avatar({ name, species, size = 52, owner = 'me', src }: { name: string; species?: string; size?: number; owner?: 'me' | 'other'; src?: string }) {
+export function Avatar({ name, species, size = 52, owner = 'me', src, color }: { name: string; species?: string; size?: number; owner?: 'me' | 'other'; src?: string; color?: string }) {
+  // A pet's color tints its initial, or rings its photo; people keep the mine/theirs colors.
+  const tint: CSSProperties = color
+    ? (src ? { boxShadow: `0 0 0 2px var(--bg), 0 0 0 ${size >= 60 ? 4 : 3.5}px ${color}` } : { background: `color-mix(in srgb, ${color} 18%, var(--surface))`, color })
+    : {}
   return (
-    <div className={'avatar ' + (owner === 'me' ? 'mine' : 'theirs')} style={{ width: size, height: size, fontSize: size * 0.42 }} title={species}>
+    <div className={'avatar ' + (owner === 'me' ? 'mine' : 'theirs')} style={{ width: size, height: size, fontSize: size * 0.42, ...tint }} title={species}>
       {src ? <img src={src} alt="" /> : name.slice(0, 1).toUpperCase()}
     </div>
   )
@@ -137,7 +211,7 @@ export function Avatar({ name, species, size = 52, owner = 'me', src }: { name: 
 /** Square thumbnail for stock items: photo when there is one, otherwise the type icon. */
 export function ItemThumb({ type, src, size = 36 }: { type: ItemType; src?: string; size?: number }) {
   return (
-    <div className="icon-tile" style={{ width: size, height: size, overflow: 'hidden' }}>
+    <div className={'icon-tile type-' + type} style={{ width: size, height: size, overflow: 'hidden' }}>
       {src ? <img src={src} alt="" className="thumb-img" /> : <TypeIcon type={type} size={Math.round(size * 0.55)} />}
     </div>
   )

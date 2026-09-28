@@ -40,6 +40,24 @@ interface Ctx extends Data {
   petById: (id: string) => Pet | undefined
   showOwner: (ownerId: string) => boolean
   photoUrl: (path: string | null | undefined) => string | undefined
+  /** Each pet's identity color, by the order pets were added (see PET_COLORS). */
+  petColor: (id: string) => string
+}
+
+/**
+ * Pet identity colors, used as ~10% row tints and as dots in the pet filter.
+ * Chosen so the tints stay distinct: no yellow/brown (a 10% tint reads as the cream background),
+ * no orange/rust (warnings), no purple (the other owner's pets), no app green.
+ */
+export const PET_COLORS = ['#C2527E', '#3B7BB0', '#7C8F2A', '#2A8C8C', '#5A64B5']
+
+function assignPetColors(pets: Pet[]): Record<string, string> {
+  // In the order pets were added, so the first two always get the two most different colors
+  // and adding a pet never recolors the existing ones.
+  const out: Record<string, string> = {}
+  const sorted = [...pets].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '') || a.id.localeCompare(b.id))
+  sorted.forEach((p, i) => { out[p.id] = PET_COLORS[i % PET_COLORS.length] })
+  return out
 }
 
 const AppCtx = createContext<Ctx | null>(null)
@@ -117,6 +135,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const others = data.profiles.filter((p) => p.id !== userId)
     const othersLabel = others.length === 1 ? `${others[0].display_name || 'Partner'}'s` : "Others'"
     const f: OwnerFilter = shared ? filter : 'mine'
+    const colors = assignPetColors(data.pets)
     return {
       ...data,
       session, authReady, loading, error, userId, reload,
@@ -127,7 +146,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       nameOf: (id: string) => data.profiles.find((p) => p.id === id)?.display_name || 'Someone',
       petById: (id: string) => data.pets.find((p) => p.id === id),
       showOwner: (ownerId: string) => f === 'all' || (f === 'mine' ? ownerId === userId : ownerId !== userId),
-      photoUrl: (path) => (path ? data.photos[path] : undefined)
+      photoUrl: (path) => (path ? data.photos[path] : undefined),
+      petColor: (id: string) => colors[id] ?? PET_COLORS[0]
     }
   }, [data, session, authReady, loading, error, userId, reload, filter])
 

@@ -15,7 +15,7 @@ export default defineConfig({
         name: 'OurPets',
         short_name: 'OurPets',
         description: 'Pet care, meds and stock for your household',
-        theme_color: '#2F5D50',
+        theme_color: '#F4F1EA',
         background_color: '#F4F1EA',
         display: 'standalone',
         start_url: './',

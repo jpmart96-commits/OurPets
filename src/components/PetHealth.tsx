@@ -23,7 +23,7 @@ export function EmergencyCard({ pet, mine }: { pet: Pet; mine: boolean }) {
     ) : null
   }
   return (
-    <section className="card" aria-labelledby="em-h" style={{ borderColor: '#EBC9B4' }}>
+    <section className="card" aria-labelledby="em-h" style={{ borderColor: 'color-mix(in srgb, var(--warn-bar) 35%, var(--line))' }}>
       <div className="card-head" style={{ background: 'var(--warn-soft)', paddingBottom: 12 }}>
         <h2 id="em-h" style={{ color: 'var(--warn)', display: 'flex', alignItems: 'center', gap: 8 }}><IconAlert size={18} />Emergency</h2>
         {mine && <Link to={`/pets/${pet.id}/edit`} className="small">Edit</Link>}

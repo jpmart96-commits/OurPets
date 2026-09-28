@@ -1,5 +1,5 @@
 import type { Frequency, MedChange, MedForm, StockItem, UnitLabel } from './types'
-import { addDays, daysBetween, parseISO, toISO, todayISO } from './dates'
+import { addDays, daysBetween, fmtShort, parseISO, toISO, todayISO } from './dates'
 
 export const UNIT_PLURAL: Record<MedForm, string> = {
   tablet: 'tablets', chew: 'chews', capsule: 'capsules', sachet: 'sachets', dose: 'doses'
@@ -426,4 +426,34 @@ export function medChangeText(c: MedChange, form: MedForm | null): string {
   const s0 = scheduleWords(c.prev_frequency, c.prev_dose_times), s1 = scheduleWords(c.frequency, c.dose_times)
   if (s0 !== s1) parts.push(`${s0 || '—'} → ${s1}`)
   return parts.join(' · ') || 'Updated'
+}
+
+// ───────────── Urgency (one scale for badges and text) ─────────────
+
+/** now = act today (solid), soon = order this week (tint), ok = nothing to do (neutral). */
+export type Tone = 'now' | 'soon' | 'ok'
+
+export function stockTone(info: ItemInfo): Tone {
+  if (info.urgent || (info.daysLeft != null && info.daysLeft <= 1)) return 'now'
+  if (info.due) return 'soon'
+  return 'ok'
+}
+
+export function expiryTone(info: ItemInfo): Tone {
+  if (info.expiresIn != null && info.expiresIn <= 3) return 'now'
+  return expiryWarn(info) ? 'soon' : 'ok'
+}
+
+/** "Order today" / "Order tomorrow" / "Order by Wed 30 Sep", or null when there's no countdown. */
+export function orderText(info: ItemInfo): string | null {
+  if (info.orderIn == null || !info.orderBy) return null
+  if (info.orderIn <= 0) return 'Order today'
+  if (info.orderIn === 1) return 'Order tomorrow'
+  return `Order by ${fmtShort(info.orderBy)}`
+}
+
+/** Short days label for badges: "Today", "1 day", "5 days". */
+export function daysShort(n: number): string {
+  if (n <= 0) return 'Today'
+  return n === 1 ? '1 day' : `${n} days`
 }

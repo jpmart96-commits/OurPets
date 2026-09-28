@@ -3,10 +3,10 @@ import { Link, useParams } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import { addDays, ageText, fmtDate, fmtDateTime, fmtShort, fmtTime, parseISO, todayISO } from '../lib/dates'
-import { daysText, euro, expiryText, expiryWarn, fmtNum, isDueOn, itemInfo, medChangeText, medStart, medTimes, scheduleText, showExpiry, unitFor, isUnitFood, unitRateText } from '../lib/calc'
+import { daysShort, daysText, euro, stockTone, expiryText, expiryWarn, fmtNum, isDueOn, itemInfo, medChangeText, medStart, medTimes, scheduleText, showExpiry, unitFor, isUnitFood, unitRateText } from '../lib/calc'
 import { cycleDose, logAsNeeded, refill, slotState } from '../lib/actions'
 import type { Appointment, DocumentRow, DoseLog, Expense, HealthNote, MedChange, StockItem, Weight } from '../lib/types'
-import { Avatar, BackLink, Bar, ErrorNote, ItemThumb, Loading, Screen, Segmented } from '../components/ui'
+import { Avatar, BackLink, Bar, ToneBadge, ErrorNote, ItemThumb, Loading, Screen, Segmented } from '../components/ui'
 import { IconCheck, IconDoc, IconPlus, IconTrash, IconX } from '../components/icons'
 import WeightChart from '../components/WeightChart'
 import { EmergencyCard, VaccinesCard } from '../components/PetHealth'
@@ -84,7 +84,7 @@ export default function PetDetail() {
     <Screen>
       <BackLink to="/pets" label="Pets" />
       <header className="row" style={{ gap: 16 }}>
-        <Avatar name={pet.name} size={72} owner={mine ? 'me' : 'other'} src={photoUrl(pet.photo_path)} />
+        <Avatar name={pet.name} size={72} owner={mine ? 'me' : 'other'} src={photoUrl(pet.photo_path)} color={app.petColor(pet.id)} />
         <div className="grow">
           <h1 className="title">{pet.name}</h1>
           <div className="sub" style={{ fontSize: 14 }}>{[SPECIES[pet.species], pet.breed, ageText(pet.birth_date)].filter(Boolean).join(' · ')}</div>
@@ -135,8 +135,8 @@ export default function PetDetail() {
                     <ItemThumb type={it.type} src={photoUrl(it.photo_path)} />
                     <div className="grow"><div className="row-title">{it.name}</div>
                       <div className="row-sub">{it.type === 'med' ? scheduleText(it) : isUnitFood(it) ? unitRateText(it.unit_label, it.unit_days) : it.type === 'food' ? `${fmtNum(it.stock_item_pets.find((p) => p.pet_id === pet.id)?.daily_grams ?? 0)} g/day` : ''}</div></div>
-                    {info.daysLeft != null ? <span className={'badge ' + (info.urgent ? 'warn' : 'grey')}>{info.daysLeft} days</span>
-                      : info.countNow != null ? <span className={'badge ' + (info.lowAsNeeded ? 'warn' : 'grey')}>{fmtNum(info.countNow)} left</span> : null}
+                    {info.daysLeft != null ? <ToneBadge tone={stockTone(info)}>{daysShort(info.daysLeft)}</ToneBadge>
+                      : info.countNow != null ? <ToneBadge tone={stockTone(info)}>{fmtNum(info.countNow)} left</ToneBadge> : null}
                   </Link>
                 )
               })}
@@ -266,11 +266,11 @@ function MedCard({ item, mine, logs, history, busy, onRefill, onLog, onCycle }: 
         <Link to={`/stock/${item.id}`} className="stack-sm" style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--surface-2)', textDecoration: 'none', color: 'inherit' }}>
           <div className="row between small">
             <span className="tabular" style={{ fontWeight: 600 }}>{fmtNum(info.countNow)}{item.box_size ? ` of ${fmtNum(Number(item.box_size))}` : ''} {unitFor(item)} left</span>
-            <span className={info.urgent ? 'warn-text' : 'muted'}>
+            <span className={'tone-text-' + stockTone(info)}>
               {info.daysLeft != null ? `${daysText(info.daysLeft).replace('About ', '').replace(' left', '')}${info.orderBy ? ` · order by ${fmtShort(info.orderBy)}` : ''}` : `alert at ${fmtNum(Number(item.alert_at ?? 2))}`}
             </span>
           </div>
-          {info.pct != null && <Bar pct={info.pct} urgent={info.urgent} label={`${info.daysLeft} days left`} />}
+          {info.pct != null && <Bar pct={info.pct} tone={stockTone(info)} label={`${info.daysLeft} days left`} />}
         </Link>
       )}
 

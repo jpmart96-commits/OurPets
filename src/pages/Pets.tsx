@@ -9,7 +9,7 @@ import { IconChevron, IconPlus } from '../components/icons'
 const SPECIES: Record<string, string> = { dog: 'Dog', cat: 'Cat', other: 'Pet' }
 
 export default function Pets() {
-  const { pets, userId, shared, othersLabel, items, appointments, error, photoUrl } = useApp()
+  const { pets, userId, shared, othersLabel, items, appointments, error, photoUrl, petColor } = useApp()
   const mine = pets.filter((p) => p.owner_id === userId)
   const theirs = shared ? pets.filter((p) => p.owner_id !== userId) : []
 
@@ -35,13 +35,13 @@ export default function Pets() {
     const meta = [SPECIES[p.species], p.breed, ageText(p.birth_date)].filter(Boolean).join(' · ')
     return (
       <Link key={p.id} to={`/pets/${p.id}`} className="card pad row" style={{ textDecoration: 'none', color: 'inherit', gap: 14 }}>
-        <Avatar name={p.name} owner={owner} src={photoUrl(p.photo_path)} />
+        <Avatar name={p.name} owner={owner} src={photoUrl(p.photo_path)} color={petColor(p.id)} />
         <div className="grow">
           <div style={{ fontSize: 17, fontWeight: 700 }}>{p.name}</div>
           <div className="row-sub">{meta}</div>
           {next && <div className="small" style={{ color: owner === 'me' ? 'var(--accent)' : 'var(--other)', fontWeight: 600, marginTop: 6 }}>Next: {next}</div>}
         </div>
-        <IconChevron size={18} style={{ color: '#8A928C' }} />
+        <IconChevron size={18} style={{ color: 'var(--muted)' }} />
       </Link>
     )
   }
