@@ -28,17 +28,78 @@ export function petShare(e: Pick<Expense, 'amount' | 'pet_ids'>, petId: string):
   return Number(e.amount) / e.pet_ids.length
 }
 
+/**
+ * A pet's share of a stock item. Kibble tracked by weight splits by how many grams each pet eats;
+ * everything else splits evenly between the pets on it.
+ */
+export function itemShare(it: StockItem, petId: string): number {
+  const sp = it.stock_item_pets
+  if (!sp.some((p) => p.pet_id === petId)) return 0
+  if (it.type === 'food' && it.track_by !== 'units') {
+    const total = sp.reduce((s, p) => s + Number(p.daily_grams ?? 0), 0)
+    const mine = Number(sp.find((p) => p.pet_id === petId)?.daily_grams ?? 0)
+    if (total > 0) return mine / total
+  }
+  return 1 / Math.max(1, sp.length)
+}
+
+export interface EstimateLine {
+  item: StockItem
+  /** this pet's share of the item (1 = all of it) */
+  share: number
+  /** days one pack/box lasts at current use */
+  packDays: number | null
+  /** € per month for this pet; null when it can't be worked out */
+  perMonth: number | null
+  /** why there's no estimate */
+  missing: 'price' | 'duration' | 'as_needed' | null
+  /** price used for the estimate: the saved price, or else what was last paid */
+  unitPrice: number | null
+  /** the estimate uses the last logged purchase because no price is saved */
+  fromLastPaid?: { amount: number; on: string }
+}
+
+/** What was last paid for one pack/box of each item, from logged purchases (amount ÷ quantity). */
+export function lastPaid(expenses: Pick<Expense, 'item_id' | 'amount' | 'quantity' | 'spent_on'>[]): Record<string, { amount: number; on: string }> {
+  const out: Record<string, { amount: number; on: string }> = {}
+  for (const e of expenses) {
+    if (!e.item_id || Number(e.amount) <= 0) continue
+    const q = Number(e.quantity ?? 1) || 1
+    const cur = out[e.item_id]
+    if (!cur || e.spent_on > cur.on) out[e.item_id] = { amount: round2(Number(e.amount) / q), on: e.spent_on }
+  }
+  return out
+}
+
+/** One line per active stock item the pet uses: its € per month at current use. */
+export function monthlyLines(items: StockItem[], petId: string, paid: Record<string, { amount: number; on: string }> = {}): EstimateLine[] {
+  const out: EstimateLine[] = []
+  for (const it of items) {
+    if (it.status !== 'active') continue
+    const share = itemShare(it, petId)
+    if (!share) continue
+    const packDays = itemInfo(it).packDays
+    const fromLastPaid = it.price == null ? paid[it.id] : undefined
+    const unitPrice = it.price != null ? Number(it.price) : fromLastPaid?.amount ?? null
+    let missing: EstimateLine['missing'] = null
+    if (it.type === 'med' && it.frequency === 'as_needed') missing = 'as_needed'
+    else if (unitPrice == null) missing = 'price'
+    else if (!packDays || packDays <= 0) missing = 'duration'
+    const perMonth = missing ? null : round2((unitPrice! / packDays!) * 30 * share)
+    out.push({ item: it, share, packDays, perMonth, missing, unitPrice, fromLastPaid })
+  }
+  return out.sort((a, b) => (b.perMonth ?? -1) - (a.perMonth ?? -1))
+}
+
 /** Expected monthly spend on stock at current use: price ÷ days one pack/box lasts × 30. Only items with a price. */
 export function monthlyRunRate(items: StockItem[], petId?: string): number {
+  if (petId) return round2(monthlyLines(items, petId).reduce((s, l) => s + (l.perMonth ?? 0), 0))
   let sum = 0
   for (const it of items) {
     if (it.status !== 'active' || it.price == null) continue
-    const pets = it.stock_item_pets.map((p) => p.pet_id)
-    if (petId && !pets.includes(petId)) continue
     const days = itemInfo(it).packDays
     if (!days || days <= 0) continue
-    const perMonth = (Number(it.price) / days) * 30
-    sum += petId ? perMonth / Math.max(1, pets.length) : perMonth
+    sum += (Number(it.price) / days) * 30
   }
   return round2(sum)
 }

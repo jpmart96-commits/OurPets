@@ -49,7 +49,8 @@ interface Ctx extends Data {
  * Chosen so the tints stay distinct: no yellow/brown (a 10% tint reads as the cream background),
  * no orange/rust (warnings), no purple (the other owner's pets), no app green.
  */
-export const PET_COLORS = ['#C2527E', '#3B7BB0', '#7C8F2A', '#2A8C8C', '#5A64B5']
+// Validated as a categorical set (light + dark): every adjacent pair stays apart for colour-blind and full-colour vision
+export const PET_COLORS = ['#C2527E', '#3B7BB0', '#A8741A', '#16957F', '#5A64B5']
 
 function assignPetColors(pets: Pet[]): Record<string, string> {
   // In the order pets were added, so the first two always get the two most different colors

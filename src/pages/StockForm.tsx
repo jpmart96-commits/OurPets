@@ -618,8 +618,12 @@ export default function StockForm() {
             <div className="field"><label htmlFor="sp2">Price (€)</label><input id="sp2" className="input" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
           </div>
         )}
-        {isMed && source === 'store' && (
-          <div className="field" style={{ maxWidth: '50%' }}><label htmlFor="sp3">Price per box (€)</label><input id="sp3" className="input" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
+        {isMed && (
+          <div className="field">
+            <label htmlFor="sp3">Price per box (€)</label>
+            <input id="sp3" className="input" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} style={{ maxWidth: '50%' }} />
+            {source === 'vet' && <div className="hint">What the vet charges for a box. Used in Shop and Costs.</div>}
+          </div>
         )}
 
         {isFood && !byUnits && (

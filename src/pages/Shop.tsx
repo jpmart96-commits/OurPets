@@ -159,7 +159,7 @@ export default function Shop() {
                     <div key={r.it.id} className="card-row">
                       <div className="grow">
                         <div className="row-title">{r.it.name}</div>
-                        <div className="row-sub">{[r.it.price != null && !g.vet ? `1 × ${euro(r.it.price)}` : null, why, mine ? null : `${nameOf(r.it.owner_id)}'s`].filter(Boolean).join(' · ')}</div>
+                        <div className="row-sub">{[r.it.price != null ? `1 × ${euro(r.it.price)}` : null, why, mine ? null : `${nameOf(r.it.owner_id)}'s`].filter(Boolean).join(' · ')}</div>
                       </div>
                       {!mine ? (
                         done ? <span className="badge good">{g.vet ? 'Asked' : 'In cart'}</span> : <span className="owner-tag">Theirs</span>

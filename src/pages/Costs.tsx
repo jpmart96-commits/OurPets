@@ -106,7 +106,7 @@ export default function Costs() {
         <div className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           {avg != null ? `Average ${euro(avg)} a month` : 'Log a few orders to see your monthly average'}
           {runRate > 0 && <> · stock runs about {euro(runRate)}/month
-            <InfoTip label="About the monthly stock estimate">Worked out from your stock list: each item's price divided by how many days a pack or box lasts, times 30. Only items with a price count. Shared food is split evenly between the pets that eat it.</InfoTip></>}
+            <InfoTip label="About the monthly stock estimate">Worked out from your stock list: each item's price divided by how many days a pack or box lasts, times 30. Only items with a price count. Shared kibble is split by how much each pet eats; other shared items evenly. Pets → Costs shows it per pet and per item.</InfoTip></>}
         </div>
       </section>
 

@@ -246,7 +246,9 @@ function extract(html: string, pageUrl: string) {
   const site = metaContent(html, 'og:site_name')
   const titleTag = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
   const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]
-  const drupalTitle = html.match(/field--name-title[^>]*>([^<]+)</i)?.[1]
+  // Drupal Commerce: anchor on the main product block — upsell boxes ("Completa a tua encomenda!") come earlier in the HTML
+  const drupalTitle = html.match(/class=["'][^"']*\bproduct-title\b[^"']*["'][\s\S]{0,400}?field--name-title[^>]*>([^<]+)</i)?.[1]
+    ?? html.match(/field--name-title[^>]*>([^<]+)</i)?.[1]
 
   let name = firstString(product?.name) ?? metaContent(html, 'og:title') ?? metaContent(html, 'twitter:title') ?? (drupalTitle ? stripTags(drupalTitle) : undefined) ?? (h1 ? stripTags(h1) : undefined) ?? titleTag
   name = name ? cleanTitle(stripTags(name), site) : undefined
@@ -263,6 +265,7 @@ function extract(html: string, pageUrl: string) {
   let { price, currency } = offerPrice(product?.offers)
   if (!price) {
     const p = metaContent(html, 'product:price:amount') ?? metaContent(html, 'og:price:amount') ?? metaContent(html, 'price')
+      ?? html.match(/variation_price__\d+[\s\S]{0,400}?class=["'][^"']*calculated-price[^"']*["'][^>]*>\s*([\d.,]+)/i)?.[1]
       ?? html.match(/class=["'][^"']*calculated-price[^"']*["'][^>]*>\s*([\d.,]+)/i)?.[1]
       ?? html.match(/itemprop=["']price["'][^>]*content=["']([\d.,]+)/i)?.[1]
     if (p) { const n = parseFloat(p.replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')); if (Number.isFinite(n)) price = n }
