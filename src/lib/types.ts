@@ -3,7 +3,8 @@ export type ItemType = 'food' | 'med' | 'supply'
 export type ItemStatus = 'active' | 'paused' | 'finished'
 export type Frequency = 'daily' | 'weekly' | 'monthly' | 'as_needed'
 export type MedForm = 'tablet' | 'chew' | 'capsule' | 'sachet' | 'dose'
-export type TrackBy = 'weight' | 'units'
+/** weight/units: food used up at a steady rate · count: used now and then, just counted (food or supplies) */
+export type TrackBy = 'weight' | 'units' | 'count'
 export type UnitLabel = 'can' | 'pouch' | 'tray' | 'sachet'
 export interface UnitOpen { at: string; n: number }
 
@@ -112,6 +113,12 @@ export interface StockItem {
   /** food by units: how long an opened can keeps, in hours */
   open_life_hours: number | null
   last_order_id: string | null
+  /** track_by 'count': buy it again when it's low. false = not bought again; at 0 it's used up (Finished). */
+  rebuy: boolean
+  /** put it in the next Shopping run once, even if it isn't running low; cleared when it arrives */
+  order_next: boolean
+  /** med course: the last day of doses (inclusive); null = ongoing */
+  ends_on: string | null
   stock_item_pets: StockPet[]
 }
 
@@ -206,5 +213,7 @@ export interface Expense {
   order_id: string | null
   quantity: number | null
   note: string | null
+  /** not part of normal monthly spending: counted in totals, left out of the monthly average */
+  one_off: boolean
   created_at: string
 }

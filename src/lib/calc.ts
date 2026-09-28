@@ -57,6 +57,7 @@ export function isDueOn(item: StockItem, iso: string): boolean {
   if (item.type !== 'med' || item.status !== 'active') return false
   const start = medStart(item)
   if (iso < start) return false
+  if (item.ends_on && iso > item.ends_on) return false
   switch (item.frequency) {
     case 'daily': return true
     case 'weekly': return daysBetween(start, iso) % 7 === 0
@@ -124,7 +125,9 @@ export function medDaysLeft(item: StockItem, now = new Date()): number | null {
   let remaining = medOnHandNow(item, now)
   const today = toISO(now)
   const times = medTimes(item)
-  for (let d = 0; d <= 730; d++) {
+  // a course stops at its last day: if what's left covers it, there's nothing to count down to
+  const horizon = item.ends_on ? Math.min(730, daysBetween(today, item.ends_on)) : 730
+  for (let d = 0; d <= horizon; d++) {
     const iso = addDays(today, d)
     if (!isDueOn(item, iso)) continue
     for (const t of times) {
@@ -133,7 +136,66 @@ export function medDaysLeft(item: StockItem, now = new Date()): number | null {
       if (remaining < -1e-6) return d
     }
   }
-  return 730
+  return item.ends_on ? null : 730
+}
+
+export interface Course {
+  /** last day of doses (inclusive) */
+  endsOn: string
+  /** days from today to the last day (0 = today is the last day, negative = over) */
+  daysToEnd: number
+  /** day N of the course, and how many days it has */
+  day: number
+  totalDays: number
+  /** doses still to give (from now), and the units they need */
+  dosesLeft: number
+  need: number
+  /** units missing to finish the course (0 = enough) */
+  short: number
+  covered: boolean
+  ended: boolean
+}
+
+/** A medication course with a last day: how far in it is and whether what's left is enough to finish it. */
+export function medCourse(item: StockItem, now = new Date()): Course | null {
+  if (item.type !== 'med' || !item.ends_on || !item.frequency || item.frequency === 'as_needed') return null
+  const today = toISO(now)
+  const end = item.ends_on
+  const dose = Number(item.dose ?? 0)
+  let doses = 0
+  if (today <= end) {
+    const times = medTimes(item)
+    let iso = today
+    for (let g = 0; iso <= end && g < 800; g++, iso = addDays(iso, 1)) {
+      if (!isDueOn(item, iso)) continue
+      for (const t of times) {
+        if (iso === today && slotMoment(iso, t) <= now) continue
+        doses++
+      }
+    }
+  }
+  const need = Math.round(doses * dose * 100) / 100
+  const short = Math.max(0, Math.round((need - medOnHandNow(item, now)) * 100) / 100)
+  const start = medStart(item)
+  return {
+    endsOn: end,
+    daysToEnd: daysBetween(today, end),
+    day: Math.max(1, daysBetween(start, today) + 1),
+    totalDays: Math.max(1, daysBetween(start, end) + 1),
+    dosesLeft: doses,
+    need,
+    short,
+    covered: short <= 0,
+    ended: today > end
+  }
+}
+
+/** "Last dose today" / "Ends tomorrow" / "Ends Wed 7 Oct" */
+export function courseText(c: Course): string {
+  if (c.ended) return 'Course over'
+  if (c.daysToEnd === 0) return 'Last day today'
+  if (c.daysToEnd === 1) return 'Ends tomorrow'
+  return `Ends ${fmtShort(c.endsOn)}`
 }
 
 export function foodGramsPerDay(item: StockItem): number {
@@ -168,6 +230,21 @@ export function unitWord(label: UnitLabel | null | undefined, n = 2): string {
 
 export function isUnitFood(item: Pick<StockItem, 'type' | 'track_by'>): boolean {
   return item.type === 'food' && item.track_by === 'units'
+}
+
+/** Food in bags, counted down by grams a day. */
+export function isWeightFood(item: Pick<StockItem, 'type' | 'track_by'>): boolean {
+  return item.type === 'food' && item.track_by !== 'units' && item.track_by !== 'count'
+}
+
+/** Food or supplies used now and then (treats, shampoo, a spare leash): no countdown, just a count. */
+export function isCountItem(item: Pick<StockItem, 'type' | 'track_by'>): boolean {
+  return item.type !== 'med' && item.track_by === 'count'
+}
+
+/** "3 left" */
+export function countText(n: number | null | undefined): string {
+  return `${fmtNum(Number(n ?? 0))} left`
 }
 
 export interface UnitState {
@@ -280,6 +357,10 @@ export interface ItemInfo {
   useBy: Date | null
   /** food by units: the open can is past its use-by time */
   pastUseBy: boolean
+  /** used now and then: no countdown, just a count (countNow) */
+  byCount: boolean
+  /** medication course with a last day */
+  course: Course | null
 }
 
 export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
@@ -288,11 +369,16 @@ export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
   let packDays: number | null = null
   let countNow: number | null = null
   let lowAsNeeded = false
-  const active = item.status === 'active'
+  const course = medCourse(item, now)
+  // a course past its last day counts as finished even before the hourly job marks it
+  const active = item.status === 'active' && !course?.ended
 
   const byUnits = isUnitFood(item)
+  const byCount = isCountItem(item)
   let units: UnitState | null = null
-  if (byUnits) {
+  if (byCount) {
+    // no rate: nothing to count down
+  } else if (byUnits) {
     units = unitState(item, now)
     const d = Number(item.unit_days ?? 0)
     packDays = item.pack_units && d > 0 ? Math.floor(Number(item.pack_units) * d) : null
@@ -304,9 +390,9 @@ export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
     packDays = item.pack_days ?? null
   }
   let kgNow: number | null = null
-  if (item.type === 'food' && !byUnits) kgNow = foodKgNow(item, now)
-  if (byUnits) {
-    // daysLeft set above
+  if (isWeightFood(item)) kgNow = foodKgNow(item, now)
+  if (byUnits || byCount) {
+    // daysLeft set above (units) or none (count)
   } else if (item.type === 'food' && kgNow != null) {
     const g = foodGramsPerDay(item)
     daysLeft = g > 0 ? Math.max(0, Math.floor((kgNow * 1000) / g)) : null
@@ -323,6 +409,11 @@ export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
       const per = medPerDay(item)
       packDays = item.box_size && per > 0 ? Math.floor(Number(item.box_size) / per) : null
     }
+  }
+  if (byCount) {
+    countNow = Math.max(0, Number(item.on_hand ?? 0))
+    // "low" only matters for things you buy again
+    lowAsNeeded = active && item.rebuy && countNow <= Number(item.alert_at ?? 1)
   }
   if (!active) daysLeft = null
 
@@ -347,7 +438,9 @@ export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
     countNow,
     lowAsNeeded,
     kgNow,
-    units
+    units,
+    byCount,
+    course
   }
 }
 
@@ -356,13 +449,14 @@ export function scheduleText(item: StockItem): string {
   const dose = Number(item.dose ?? 1)
   const what = `${fmtNum(dose)} ${unitFor(item, dose)}`
   const start = medStart(item)
+  const until = item.ends_on && item.frequency !== 'as_needed' ? `, until ${fmtShort(item.ends_on)}` : ''
   switch (item.frequency) {
     case 'daily': {
       const t = medTimes(item)
-      return t.length === 1 ? `${what}, daily at ${t[0]}` : `${what}, ${t.length}× a day (${t.join(', ')})`
+      return (t.length === 1 ? `${what}, daily at ${t[0]}` : `${what}, ${t.length}× a day (${t.join(', ')})`) + until
     }
-    case 'weekly': return `${what}, weekly on ${WEEKDAYS[parseISO(start).getDay()]}`
-    case 'monthly': return `${what}, monthly on the ${ordinal(parseISO(start).getDate())}`
+    case 'weekly': return `${what}, weekly on ${WEEKDAYS[parseISO(start).getDay()]}${until}`
+    case 'monthly': return `${what}, monthly on the ${ordinal(parseISO(start).getDate())}${until}`
     case 'as_needed': return `${what}, as needed`
     default: return what
   }

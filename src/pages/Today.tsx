@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { errMsg } from '../lib/supabase'
 import { addDays, daysBetween, fmtDateTime, fmtShort, fmtTime, fmtToday, greeting, relDay, todayISO } from '../lib/dates'
-import { daysShort, expiryText, expiryTone, expiryWarn, fmtNum, isDueOn, isUnitFood, itemInfo, medTimes, nextDue, orderText, slotMoment, stockTone, unitFor, unitWord } from '../lib/calc'
+import { countText, daysShort, expiryText, expiryTone, expiryWarn, fmtNum, isDueOn, isUnitFood, itemInfo, medTimes, nextDue, orderText, slotMoment, stockTone, unitFor, unitWord } from '../lib/calc'
 import { Avatar, Collapse, Meta, Empty, ErrorNote, InfoTip, ItemThumb, Loading, OwnerSwitch, petTint, ProgressRing, Screen, TickCheck, ToneBadge, haptic } from '../components/ui'
 import { UnitFood } from '../components/UnitFood'
 import { IconCalendar, IconCart, IconCheck, IconChevron, IconPill, IconX } from '../components/icons'
@@ -351,7 +351,7 @@ export default function Today() {
                     lowPets.size > 1 && ids.length > 0 && petNames(ids),
                     it.owner_id !== userId && <span className="owner-tag">{nameOf(it.owner_id)}'s</span>,
                     <span className={order && tone !== 'ok' ? 'tone-text-' + tone : undefined}>
-                      {order ?? (info.countNow != null ? `${fmtNum(info.countNow)} ${unitFor(it, info.countNow)} left` : 'Running low')}
+                      {order ?? (info.countNow != null ? (info.byCount ? countText(info.countNow) : `${fmtNum(info.countNow)} ${unitFor(it, info.countNow)} left`) : 'Running low')}
                     </span>
                   ]} />
                 </div>

@@ -16,6 +16,9 @@ export const IconPaw = (p: P) => (
     <path d="M12 12c-3 0-6 3.5-6 6 0 1.7 1.3 2.5 3 2.5 1.2 0 2-.6 3-.6s1.8.6 3 .6c1.7 0 3-.8 3-2.5 0-2.5-3-6-6-6z" />
   </svg>
 )
+export const IconCoin = (p: P) => (
+  <svg {...base(p)}><circle cx="12" cy="12" r="9" /><path d="M15.2 8.9a3.7 3.7 0 1 0 0 6.2M7.6 11h5.4M7.6 13.2h4.4" /></svg>
+)
 export const IconBox = (p: P) => <svg {...base(p)}><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" /><path d="M3 7.5 12 12l9-4.5M12 12v9" /></svg>
 export const IconCart = (p: P) => (
   <svg {...base(p)}><circle cx="9" cy="20" r="1.4" /><circle cx="18" cy="20" r="1.4" /><path d="M2 3h3l2.7 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6" /></svg>

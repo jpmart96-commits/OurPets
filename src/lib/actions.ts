@@ -1,23 +1,49 @@
 import { supabase } from './supabase'
-import { isUnitFood, itemInfo, slotMoment, unitState } from './calc'
+import { isCountItem, isUnitFood, itemInfo, slotMoment, unitState } from './calc'
 import { todayISO } from './dates'
 import type { DoseLog, StockItem } from './types'
 
-/** A new pack was opened (food/supply) or a new box arrived (med). */
+/** A new pack was opened (food/supply) or a new box arrived (med). Also ends a pending order. */
 export async function refill(item: StockItem) {
   if (item.type === 'med') {
     const now = itemInfo(item).countNow ?? Number(item.on_hand ?? 0)
     return supabase.from('stock_items').update({
       on_hand: Math.round((now + Number(item.box_size ?? 0)) * 100) / 100,
       counted_at: new Date().toISOString(),
-      in_cart: false, ordered_at: null
+      in_cart: false, ordered_at: null, order_next: false
     }).eq('id', item.id)
   }
+  if (isCountItem(item)) return gotMore(item)
   if (isUnitFood(item)) return addUnitPack(item)
   return supabase.from('stock_items').update({
-    opened_on: todayISO(), in_cart: false, ordered_at: null,
+    opened_on: todayISO(), in_cart: false, ordered_at: null, order_next: false,
     ...(item.type === 'food' ? { left_kg: item.pack_kg, left_counted_at: new Date().toISOString() } : {})
   }).eq('id', item.id)
+}
+
+// ───────────── Used now and then (track_by 'count') ─────────────
+
+/** One was used up. Something not bought again moves to Finished ("Used up") at 0. */
+export async function usedOne(item: StockItem) {
+  const n = Math.max(0, Math.round((Number(item.on_hand ?? 0) - 1) * 100) / 100)
+  return supabase.from('stock_items').update({
+    on_hand: n, counted_at: new Date().toISOString(),
+    ...(n <= 0 && !item.rebuy ? { status: 'finished' } : {})
+  }).eq('id', item.id)
+}
+
+/** Got more (bought, or the order arrived). Brings a used-up item back. */
+export async function gotMore(item: StockItem, n = 1) {
+  return supabase.from('stock_items').update({
+    on_hand: Math.max(0, Number(item.status === 'active' ? item.on_hand ?? 0 : 0)) + n,
+    counted_at: new Date().toISOString(),
+    status: 'active', in_cart: false, ordered_at: null, order_next: false
+  }).eq('id', item.id)
+}
+
+/** Put an item in the next Shopping run once (or take it out again). */
+export async function setOrderNext(item: StockItem, on: boolean) {
+  return supabase.from('stock_items').update({ order_next: on, ...(on ? {} : { in_cart: false }) }).eq('id', item.id)
 }
 
 /** Food: record how much is actually left right now (e.g. weighed the bag). */
@@ -65,7 +91,7 @@ export async function addUnitPack(item: StockItem) {
   return supabase.from('stock_items').update({
     units_left: r.units_left + Number(item.pack_units ?? 0),
     unit_opened_at: r.unit_opened_at,
-    in_cart: false, ordered_at: null
+    in_cart: false, ordered_at: null, order_next: false
   }).eq('id', item.id)
 }
 

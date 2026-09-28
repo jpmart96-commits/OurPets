@@ -5,6 +5,9 @@
 //  • appointments 2 hours before
 //  • an open can past its use-by time (food by units with "opened keeps N hours"), between 08:00 and 22:00
 //  • expiry dates in the morning summary (expired, or within a week)
+//  • the last day of a medication course in the morning summary
+// Stock maths comes from calc.ts: courses stop after ends_on, and things used now and then (track_by 'count')
+// only count as low when they're bought again.
 // Also: POST {test:true} with a user's JWT sends a test notification to that user's devices.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import webpush from 'npm:web-push@3.6.7'
@@ -136,6 +139,10 @@ Deno.serve(async (req) => {
         for (const it of myItems) {
           if (it.type === 'med' && (it.frequency === 'weekly' || it.frequency === 'monthly') && isDueOn(it, today)) {
             lines.push(`${it.stock_item_pets.map((sp) => petName(sp.pet_id)).join(' & ')}: ${it.name} today`)
+          }
+          // a course with a last day: say so on its last day
+          if (it.type === 'med' && it.ends_on === today && it.frequency !== 'as_needed') {
+            lines.push(`${it.stock_item_pets.map((sp) => petName(sp.pet_id)).join(' & ')}: last day of ${it.name}`)
           }
         }
       }

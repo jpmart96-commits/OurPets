@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { errMsg } from '../lib/supabase'
 import { fmtShort } from '../lib/dates'
-import { daysShort, daysText, expiryText, expiryTone, fmtKg, fmtNum, foodGramsPerDay, isUnitFood, itemInfo, orderText, scheduleText, showExpiry, stockTone, unitFor, unitRateText, unitWord, type ItemInfo } from '../lib/calc'
-import { refill, setFoodLeft } from '../lib/actions'
+import { countText, courseText, daysShort, daysText, expiryText, expiryTone, fmtKg, fmtNum, foodGramsPerDay, isCountItem, isUnitFood, isWeightFood, itemInfo, orderText, scheduleText, showExpiry, stockTone, unitFor, unitRateText, unitWord, type ItemInfo } from '../lib/calc'
+import { gotMore, refill, setFoodLeft, setOrderNext, usedOne } from '../lib/actions'
 import type { ItemType, StockItem } from '../lib/types'
 import { Bar, Chips, Collapse, Meta, Empty, ErrorNote, InfoTip, ItemThumb, OwnerSwitch, PetDot, petTint, Screen, ToneBadge, haptic } from '../components/ui'
 import { UnitFood } from '../components/UnitFood'
@@ -40,19 +40,23 @@ export default function Stock() {
   [items, type, pet, app.filter])
   const inactive = visible.filter((it) => it.status !== 'active' && matches(it))
   const dueList = list.filter((x) => x.info.due)
-  const restList = list.filter((x) => !x.info.due)
+  const restList = list.filter((x) => !x.info.due && !x.info.byCount)
+  // used now and then: no countdown, so they sit apart from what's counted down
+  const occList = list.filter((x) => !x.info.due && x.info.byCount).sort((a, b) => a.it.name.localeCompare(b.it.name))
 
   const petIds = (it: StockItem) => it.stock_item_pets.map((p) => p.pet_id)
   const petNames = (it: StockItem) => petIds(it).map((id) => petById(id)?.name).filter(Boolean).join(' & ')
   const storeName = (it: StockItem) => it.source === 'vet' ? 'Vet · Rx' : stores.find((s) => s.id === it.store_id)?.name ?? ''
   const rate = (it: StockItem) => {
     if (it.type === 'med') return scheduleText(it)
+    if (isCountItem(it)) return it.rebuy ? `Used now and then · buy again at ${fmtNum(Number(it.alert_at ?? 1))} left` : 'Used now and then · not bought again'
     if (isUnitFood(it)) return unitRateText(it.unit_label, it.unit_days)
-    if (it.type === 'food') { const g = foodGramsPerDay(it); return g ? `${fmtNum(g)} g/day` : '' }
+    if (isWeightFood(it)) { const g = foodGramsPerDay(it); return g ? `${fmtNum(g)} g/day` : '' }
     return it.pack_days ? `1 pack every ~${it.pack_days} days` : ''
   }
   /** One short "how much is left" figure for the collapsed row. */
   const amountText = (it: StockItem, info: ItemInfo) => {
+    if (info.byCount) return countText(info.countNow)
     if (it.type === 'med' && info.countNow != null) return `${fmtNum(info.countNow)}${it.box_size ? `/${fmtNum(Number(it.box_size))}` : ''} ${unitFor(it, info.countNow)}`
     if (isUnitFood(it) && info.units) return `${fmtNum(info.units.unopened)} ${unitWord(it.unit_label, info.units.unopened)} unopened`
     if (it.type === 'food' && info.kgNow != null) return `≈ ${fmtKg(info.kgNow)} kg`
@@ -69,14 +73,15 @@ export default function Stock() {
     setBusy(null); setEditing(null)
   }
 
-  async function doRefill(it: StockItem) {
+  async function run(it: StockItem, fn: (it: StockItem) => PromiseLike<{ error: unknown }>, buzz = 15) {
     setBusy(it.id); setErr(null)
-    haptic(15)
-    const r = await refill(it)
+    if (buzz) haptic(buzz)
+    const r = await fn(it)
     if (r.error) setErr(errMsg(r.error))
     await reload()
     setBusy(null)
   }
+  const doRefill = (it: StockItem) => run(it, refill)
 
   const row = ({ it, info }: { it: StockItem; info: ItemInfo }) => {
     const mine = it.owner_id === userId
@@ -98,14 +103,18 @@ export default function Stock() {
               manyPets && pet === 'all' && ids.length > 0 && petNames(it),
               !mine && <span className="owner-tag">{nameOf(it.owner_id)}'s</span>,
               // Days left is already in the badge and bar; the count only shows here when there's no countdown (open the row for it).
-              info.daysLeft == null && <span className="tabular">{amountText(it, info)}</span>,
+              info.daysLeft == null && !info.byCount && <span className="tabular">{amountText(it, info)}</span>,
               it.in_cart ? <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{it.ordered_at ? 'Ordered' : 'In cart'}</span>
+                : it.order_next ? <span style={{ color: 'var(--accent)', fontWeight: 600 }}>On next order</span>
                 : order && tone !== 'ok' && <span className={'tone-text-' + tone}>{order}</span>,
+              info.course && info.daysLeft == null && <span>{courseText(info.course)}</span>,
               exp && <span className={'tone-text-' + expiryTone(info)}>{expiryText(info, it.expires_on)}</span>
             ]} />
           </div>
           <div className="stock-right">
             {info.daysLeft != null ? <ToneBadge tone={tone}>{daysShort(info.daysLeft)}</ToneBadge>
+              : info.byCount ? <ToneBadge tone={info.lowAsNeeded ? 'soon' : 'ok'}>{countText(info.countNow)}</ToneBadge>
+              : info.course ? <ToneBadge tone="ok">Course</ToneBadge>
               : isMed && it.frequency === 'as_needed' ? <ToneBadge tone={info.lowAsNeeded ? 'soon' : 'ok'}>{info.lowAsNeeded ? 'Low' : 'As needed'}</ToneBadge>
               : <ToneBadge tone="ok">—</ToneBadge>}
           </div>
@@ -124,7 +133,21 @@ export default function Stock() {
                 {it.frequency !== 'as_needed' && <InfoTip label="How the count is worked out">Your last count minus every scheduled dose since then. Edit the item to type a new count if it's off.</InfoTip>}</span>
                 <span className="tabular">{fmtNum(info.countNow)}{it.box_size ? ` of ${fmtNum(Number(it.box_size))}` : ''} {unitFor(it)}</span></div>
             )}
-            {it.type === 'food' && !isUnitFood(it) && info.kgNow != null && (
+            {info.byCount && (
+              <div className="kv"><span>Left</span><span className={'tabular' + (info.lowAsNeeded ? ' tone-text-soon' : '')}>{countText(info.countNow)}</span></div>
+            )}
+            {info.course && (
+              <>
+                <div className="kv"><span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>Course
+                  <InfoTip label="About the course">This medication has a last day. After it there are no more doses, and the next day it moves to Finished. Change it in Details.</InfoTip></span>
+                  <span>Day {Math.min(info.course.day, info.course.totalDays)} of {info.course.totalDays}</span></div>
+                <div className="kv"><span>To finish it</span>
+                  <span className={info.course.covered ? '' : 'tone-text-' + tone}>{info.course.covered
+                    ? `Enough${info.countNow != null && info.countNow - info.course.need > 0 ? `, ${fmtNum(Math.round((info.countNow - info.course.need) * 100) / 100)} to spare` : ''}`
+                    : `${fmtNum(info.course.short)} ${unitFor(it, info.course.short)} short`}</span></div>
+              </>
+            )}
+            {isWeightFood(it) && info.kgNow != null && (
               <div className="kv"><span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>Left
                 <InfoTip label="How the kg left is worked out">An estimate: the last amount you entered minus what your pets eat each day since then. Tap “Update amount” after weighing the bag to correct it.</InfoTip></span>
                 <span className="tabular">≈ {fmtKg(info.kgNow)}{it.pack_kg ? ` of ${fmtKg(Number(it.pack_kg))}` : ''} kg{it.left_counted_at ? ` · counted ${fmtShort(it.left_counted_at.slice(0, 10))}` : ''}</span></div>
@@ -145,11 +168,15 @@ export default function Stock() {
             {isMed && it.frequency === 'as_needed' && (
               <div className={'small ' + (info.lowAsNeeded ? 'warn-text' : 'muted')}>{info.lowAsNeeded ? 'Running low. ' : ''}Given only when needed, so there's no countdown. Alert at {fmtNum(Number(it.alert_at ?? 2))} left.</div>
             )}
-            {info.daysLeft == null && !(isMed && it.frequency === 'as_needed') && (
+            {info.daysLeft == null && !(isMed && it.frequency === 'as_needed') && !info.byCount && !info.course && (
               <div className="small muted">Add {isUnitFood(it) ? `${unitWord(it.unit_label)} per pack and how long one lasts` : it.type === 'food' ? 'pack size and daily amounts' : it.type === 'supply' ? 'how long a pack lasts' : 'the dose and schedule'} to see days left.</div>
             )}
 
             {isUnitFood(it) && <UnitFood item={it} info={info} mine={mine} reload={reload} />}
+
+            {it.order_next && !it.in_cart && (
+              <div className="small muted">On your next Shopping run, even though it isn't running low. It comes off when it arrives.</div>
+            )}
 
             {editing === it.id && (
               <form className="row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); void saveAmount(it) }}>
@@ -161,15 +188,26 @@ export default function Stock() {
             )}
 
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-              {mine && !isUnitFood(it) && (
+              {mine && info.byCount && (
+                <>
+                  <button className="btn small" disabled={busy === it.id || (info.countNow ?? 0) <= 0} onClick={() => run(it, usedOne)}>Used one up</button>
+                  <button className="btn ghost small" disabled={busy === it.id} onClick={() => run(it, gotMore)}>Got one more</button>
+                </>
+              )}
+              {mine && !isUnitFood(it) && !info.byCount && (
                 <>
                   <button className="btn ghost small" disabled={busy === it.id || (isMed && !it.box_size)} onClick={() => doRefill(it)}>
                     {isMed ? 'Refilled +1 box' : 'New pack opened'}
                   </button>
-                  {it.type === 'food' && editing !== it.id && (
+                  {isWeightFood(it) && editing !== it.id && (
                     <button className="btn ghost small" onClick={() => { setEditing(it.id); setAmount(info.kgNow != null ? String(info.kgNow) : '') }}>Update amount</button>
                   )}
                 </>
+              )}
+              {mine && !it.in_cart && !it.ordered_at && !info.due && (
+                <button className="btn ghost small" aria-pressed={it.order_next} disabled={busy === it.id} onClick={() => run(it, (x) => setOrderNext(x, !x.order_next), 0)}>
+                  {it.order_next ? 'Take off next order' : 'Add to next order'}
+                </button>
               )}
               <Link to={`/stock/${it.id}`} className="btn ghost small">Details</Link>
             </div>
@@ -230,16 +268,37 @@ export default function Stock() {
         </section>
       )}
 
+      {occList.length > 0 && (
+        <section className="stack-sm" aria-labelledby="occ-h">
+          <h2 id="occ-h" className="section-label" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>Now and then · {occList.length}
+            <InfoTip label="About things used now and then">Treats, shampoo, a spare leash: no countdown, just how many you have. Tap “Used one up” when one is finished. Things you don't buy again move to “Used up” at 0; the rest go on your Shopping run when they're low.</InfoTip>
+          </h2>
+          <div className="card">{occList.map(row)}</div>
+        </section>
+      )}
+
       {inactive.length > 0 && (
         <section className="stack-sm" style={{ marginTop: 4 }}>
-          <h2 className="section-label">Paused &amp; finished</h2>
+          <h2 className="section-label">Paused, finished &amp; used up</h2>
           <div className="card">
-            {inactive.map((it) => (
-              <Link key={it.id} to={`/stock/${it.id}`} className="card-row" style={{ textDecoration: 'none', color: 'inherit' }}>
-                <div className="grow"><div className="row-title" style={{ color: 'var(--muted)' }}>{it.name}</div><div className="row-sub">{[petNames(it), rate(it)].filter(Boolean).join(' · ')}</div></div>
-                <span className="badge pill grey">{it.status === 'paused' ? 'Paused' : 'Finished'}</span>
-              </Link>
-            ))}
+            {inactive.map((it) => {
+              const again = it.owner_id === userId && isCountItem(it) && it.status === 'finished'
+              return (
+                <div key={it.id} className="card-row" style={{ gap: 8 }}>
+                  <Link to={`/stock/${it.id}`} className="grow" style={{ textDecoration: 'none', color: 'inherit', minWidth: 0 }}>
+                    <div className="row-title" style={{ color: 'var(--muted)' }}>{it.name}</div>
+                    <div className="row-sub">{[petNames(it), it.order_next ? (it.ordered_at ? 'Ordered' : 'On next order') : rate(it)].filter(Boolean).join(' · ')}</div>
+                  </Link>
+                  {again && !it.order_next && (
+                    <button className="btn ghost small" disabled={busy === it.id} onClick={() => run(it, (x) => setOrderNext(x, true), 0)}>Buy again</button>
+                  )}
+                  {again && it.order_next && (
+                    <button className="btn small" disabled={busy === it.id} onClick={() => run(it, gotMore)}>Got it</button>
+                  )}
+                  {!again && <span className="badge pill grey">{it.status === 'paused' ? 'Paused' : isCountItem(it) ? 'Used up' : 'Finished'}</span>}
+                </div>
+              )
+            })}
           </div>
         </section>
       )}

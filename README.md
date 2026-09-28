@@ -38,6 +38,9 @@ Deploy changes with `supabase functions deploy product-lookup`.
 - **(i) tips:** every non-obvious field or number has an (i) next to it. It opens on mouse-over, on tap (phones) and with the keyboard (`InfoTip` / `FieldLabel` in `src/components/ui.tsx`). New fields should get one when their meaning isn't obvious.
 - **Supplies:** "one pack lasts N days", counted from the date opened.
 - **Meds:** on hand at the last count, minus every scheduled dose since then. Days left = days until the next scheduled dose can't be covered. As-needed meds count down only when a dose is logged and alert at a threshold.
+- **Medication courses:** a med can have a last day (`ends_on`, e.g. a 10-day antibiotic). No doses are due after it. If what's on hand covers the rest of the course there's no countdown and no reorder; if not, the countdown works as usual so you get more in time. The hourly pg_cron job `ourpets-finish-courses` (`private.finish_ended_courses()`) sets it to Finished the day after, in the owner's time zone, with the reason “Course ended” in the history.
+- **Used now and then** (`track_by = 'count'`, food or supplies: treats, shampoo, a spare leash): no countdown, just how many you have (`on_hand`). “Used one up” takes one off; “Got one more” adds one. With `rebuy` off (not bought again) it moves to Finished (“Used up”) at 0 and never shows as low. With `rebuy` on it counts as low at `alert_at` and goes on the Shopping run, in the morning summary and in the calendar.
+- **Add to next order** (`order_next`): puts any item in the next Shopping run once, even if it isn't low; “Buy again” does the same for something used up. It's cleared when the item arrives (New pack opened / Refilled / Got one more), or with the × in the Shopping run.
 - **Reorder:** an item is due when days left − delivery lead time ≤ 7 days.
 
 ## Reminders
@@ -46,7 +49,8 @@ Deploy changes with `supabase functions deploy product-lookup`.
 - `send-reminders` Edge Function runs every 5 minutes (pg_cron job `ourpets-reminders` → pg_net). It sends: each daily dose at its time, a morning summary (weekly/monthly doses, items to reorder, appointments today/tomorrow, vaccines due within 7 days), and appointments 2 hours before. Each reminder is sent once (`notification_log`).
 - VAPID keys and the cron secret live in `private.app_config` (not in git). The public key is also in `src/lib/push.ts`.
 - Also: an open can past its use-by time (08:00–22:00 only), and expiry dates within a week in the morning summary.
-- The functions reuse the app's maths: after changing `src/lib/{calc,dates,types}.ts`, run `scripts/sync-shared.sh` and redeploy `send-reminders` and `calendar`.
+- The functions reuse the app's maths: after changing `src/lib/{calc,dates,types}.ts`, run `scripts/sync-shared.sh` and redeploy `send-reminders` and `calendar`. Deploying through the Supabase MCP works best with one bundled file per function: `npx esbuild supabase/functions/<fn>/index.ts --bundle --format=esm --platform=neutral --target=es2022 --external:'npm:*' --legal-comments=none --outfile=<fn>.js`, deployed as `index.ts`.
+- The morning summary also says when it's the last day of a medication course.
 
 ## Timeline and health journal
 
@@ -59,7 +63,8 @@ Deploy changes with `supabase functions deploy product-lookup`.
 - `expenses` rows: amount, category, date, the pets it's for (`pet_ids`, split evenly), optional item, store and order.
 - “I placed the order” in the Shopping run asks for quantities and the order total; each item becomes a line, and the difference (shipping or discount) becomes its own line. Undo removes the order's lines (`stock_items.last_order_id`).
 - “Log a purchase” on a stock item covers things bought elsewhere; the + on the Costs page covers vet bills, insurance, grooming…
-- The Costs page (`/costs`, `?pet=<id>` for one pet) shows the period total, 12 months by month, by pet, by type, and an estimate of what stock costs per month (price ÷ days a pack lasts × 30).
+- **Costs** is its own tab (`/costs`, `?pet=<id>` for one pet, used by the Costs card on a pet's Overview). One page for both questions: what was spent (period total, one-offs, the usual month without one-offs, 12 months by month split by pet, by pet, by type, the list) and what stock should cost ("Expected": price ÷ days a pack lasts × 30, per pet and per item, drawn as a dashed line on the month chart). It replaced the old Pets → Costs view; `/pets?view=costs` redirects here.
+- **One-off purchases** (`expenses.one_off`): things not bought regularly (a carrier, a bed, treats you don't rebuy). They count in totals, by pet and by type, show as the striped top of a month's bar, and are left out of the monthly average. Set it in the + form, on “Log a purchase”, or by tapping a line under Spending. Orders and purchases of items used now and then and not bought again are marked one-off automatically.
 
 ## Expiry dates
 

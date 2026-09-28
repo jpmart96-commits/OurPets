@@ -1,10 +1,9 @@
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { ageText, fmtDateTime, relDay, addDays, todayISO } from '../lib/dates'
 import { itemInfo, nextDue } from '../lib/calc'
 import type { Pet } from '../lib/types'
-import { Avatar, Empty, ErrorNote, Screen, Segmented } from '../components/ui'
-import { CostsDashboard } from '../components/CostsDashboard'
+import { Avatar, Empty, ErrorNote, Screen } from '../components/ui'
 import { IconChevron, IconPlus } from '../components/icons'
 
 const SPECIES: Record<string, string> = { dog: 'Dog', cat: 'Cat', other: 'Pet' }
@@ -13,8 +12,7 @@ export default function Pets() {
   const { pets, userId, shared, othersLabel, items, appointments, error, photoUrl, petColor } = useApp()
   const mine = pets.filter((p) => p.owner_id === userId)
   const theirs = shared ? pets.filter((p) => p.owner_id !== userId) : []
-  const [qs, setQs] = useSearchParams()
-  const view: 'pets' | 'costs' = qs.get('view') === 'costs' ? 'costs' : 'pets'
+  const [qs] = useSearchParams()
 
   function nextFor(p: Pet): string | null {
     const appt = appointments.find((a) => a.pet_id === p.id && new Date(a.starts_at) >= new Date())
@@ -49,19 +47,17 @@ export default function Pets() {
     )
   }
 
+  // costs used to be a view here; old links go to the Costs tab
+  if (qs.get('view') === 'costs') return <Navigate to="/costs" replace />
+
   return (
     <Screen>
       <header className="row between">
         <h1 className="title">Pets</h1>
-        {view === 'pets' && <Link to="/pets/new" className="btn ghost small" style={{ minHeight: 44 }}><IconPlus size={16} />Add pet</Link>}
+        <Link to="/pets/new" className="btn ghost small" style={{ minHeight: 44 }}><IconPlus size={16} />Add pet</Link>
       </header>
-      {pets.length > 0 && (
-        <Segmented<'pets' | 'costs'> label="Show" value={view} onChange={(v) => setQs(v === 'costs' ? { view: 'costs' } : {}, { replace: true })}
-          options={[{ id: 'pets', label: 'Pets' }, { id: 'costs', label: 'Costs' }]} />
-      )}
       <ErrorNote msg={error} />
 
-      {view === 'costs' ? <CostsDashboard /> : (<>
       {mine.length === 0 ? (
         <Empty title="No pets yet">
           <div className="hint">Add a pet with its name and species. Everything else is optional and can be filled in later.</div>
@@ -81,7 +77,6 @@ export default function Pets() {
           <p className="hint" style={{ margin: '2px 4px 0' }}>You can see these pets and what's due, but only their owner can log care.</p>
         </section>
       )}
-      </>)}
     </Screen>
   )
 }

@@ -7,7 +7,7 @@ import { euro, fmtNum, itemInfo, type ItemInfo } from '../lib/calc'
 import type { StockItem, Store } from '../lib/types'
 import { Bar, Empty, ErrorNote, OwnerSwitch, Screen, InfoTip } from '../components/ui'
 import { deleteOrder, logOrder, round2 } from '../lib/costs'
-import { IconCheck, IconExternal } from '../components/icons'
+import { IconCheck, IconExternal, IconX } from '../components/icons'
 
 interface Row { it: StockItem; info: ItemInfo }
 interface Group { key: string; name: string; store?: Store; vet: boolean; rows: Row[]; suggestions: Row[] }
@@ -34,12 +34,14 @@ export default function Shop() {
       }
       return map.get(key)!
     }
-    const all = items.filter((it) => it.status === 'active' && showOwner(it.owner_id)).map((it) => ({ it, info: itemInfo(it) }))
+    // "Add to next order" also brings back something used up, so it counts even when the item isn't active
+    const all = items.filter((it) => (it.status === 'active' || it.order_next) && showOwner(it.owner_id)).map((it) => ({ it, info: itemInfo(it) }))
+    const wanted = (r: Row) => r.info.due || r.it.order_next || r.it.in_cart || !!r.it.ordered_at || pulled.includes(r.it.id)
     for (const r of all) {
-      if (r.info.due || r.it.in_cart || r.it.ordered_at || pulled.includes(r.it.id)) ensure(r.it).rows.push(r)
+      if (wanted(r)) ensure(r.it).rows.push(r)
     }
     for (const r of all) {
-      if (r.info.due || r.it.in_cart || r.it.ordered_at || pulled.includes(r.it.id)) continue
+      if (wanted(r)) continue
       if (r.it.owner_id !== userId || r.info.orderIn == null || r.info.orderIn > 14) continue
       const g = map.get(keyOf(r.it))
       if (g && !g.vet) g.suggestions.push(r)
@@ -114,7 +116,6 @@ export default function Shop() {
           <h1 className="title">Shopping run</h1>
           <div className="sub">{count ? `${handled} of ${count} handled · ${groups.length} ${groups.length === 1 ? 'place' : 'places'}` : 'Nothing to buy this week'}</div>
         </div>
-        <Link to="/costs" className="btn ghost small" aria-label="Costs: what you've spent">€ Costs</Link>
       </header>
       <OwnerSwitch />
       {count > 0 && <p className="note">“Add to cart” opens the item in the store. Add it there, come back, and it's ticked off here.</p>}
@@ -122,7 +123,7 @@ export default function Shop() {
 
       {count === 0 && (
         <Empty title="You're stocked up">
-          <div className="hint">Items show up here a week before they need ordering, grouped by store.</div>
+          <div className="hint">Items show up here a week before they need ordering, grouped by store. To buy something once without waiting, open it in Stock and tap “Add to next order”.</div>
           <Link to="/stock" className="btn ghost" style={{ alignSelf: 'flex-start' }}>See stock</Link>
         </Empty>
       )}
@@ -145,7 +146,7 @@ export default function Shop() {
                 <span className="tick done" aria-hidden="true" style={{ width: 28 }}><span><IconCheck size={16} /></span></span>
                 <div className="grow">
                   <div className="row-title">{g.vet ? 'Requested' : 'Order placed'} {fmtShort(mineRows[0].it.ordered_at!.slice(0, 10))}</div>
-                  <div className="row-sub">When it arrives, tap “{g.vet ? 'Refilled' : 'New pack opened'}” in Stock.</div>
+                  <div className="row-sub">When it arrives, tap “{g.vet ? 'Refilled' : 'New pack opened'}” (or “Got one more”) in Stock.</div>
                 </div>
                 <button className="link-btn" onClick={() => void undoOrder(mineRows)}>Undo</button>
               </div>
@@ -154,7 +155,8 @@ export default function Shop() {
                 {g.rows.map((r) => {
                   const mine = r.it.owner_id === userId
                   const done = r.it.in_cart || !!r.it.ordered_at
-                  const why = r.info.daysLeft != null ? `${r.info.daysLeft} days left` : r.info.countNow != null ? `${fmtNum(r.info.countNow)} left` : ''
+                  const why = r.it.order_next && !r.info.due ? 'added by you'
+                    : r.info.daysLeft != null ? `${r.info.daysLeft} days left` : r.info.countNow != null ? `${fmtNum(r.info.countNow)} left` : ''
                   return (
                     <div key={r.it.id} className="card-row">
                       <div className="grow">
@@ -169,9 +171,15 @@ export default function Shop() {
                           <IconCheck size={14} strokeWidth={3} />{g.vet ? 'Asked' : 'In cart'}
                         </button>
                       ) : (
-                        <button className="btn small" disabled={busy === r.it.id} onClick={() => addToCart(g, r)}>
-                          {g.vet ? 'Ask vet' : 'Add to cart'}{!g.vet && <IconExternal size={14} />}
-                        </button>
+                        <div className="row" style={{ gap: 4, flexShrink: 0 }}>
+                          {r.it.order_next && !r.info.due && (
+                            <button className="icon-btn plain" aria-label={`Not this time: take ${r.it.name} off this order`} title="Not this time" disabled={busy === r.it.id}
+                              onClick={() => update([r.it.id], { order_next: false })}><IconX size={16} /></button>
+                          )}
+                          <button className="btn small" disabled={busy === r.it.id} onClick={() => addToCart(g, r)}>
+                            {g.vet ? 'Ask vet' : 'Add to cart'}{!g.vet && <IconExternal size={14} />}
+                          </button>
+                        </div>
                       )}
                     </div>
                   )

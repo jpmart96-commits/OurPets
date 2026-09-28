@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { itemInfo } from './calc'
+import { isCountItem, isWeightFood, itemInfo } from './calc'
 import { addDays, todayISO } from './dates'
 import type { Expense, ExpenseCategory, ItemType, StockItem } from './types'
 
@@ -22,6 +22,9 @@ export const categoryOf = (t: ItemType): ExpenseCategory => (t === 'food' ? 'foo
 
 export const round2 = (n: number) => Math.round(n * 100) / 100
 
+/** Buying it isn't part of normal monthly spending: something used now and then and not bought again. */
+export const isOneOffItem = (it: StockItem) => isCountItem(it) && !it.rebuy
+
 /** A pet's share of an expense: split evenly between the pets on it. */
 export function petShare(e: Pick<Expense, 'amount' | 'pet_ids'>, petId: string): number {
   if (!e.pet_ids.includes(petId)) return 0
@@ -35,7 +38,7 @@ export function petShare(e: Pick<Expense, 'amount' | 'pet_ids'>, petId: string):
 export function itemShare(it: StockItem, petId: string): number {
   const sp = it.stock_item_pets
   if (!sp.some((p) => p.pet_id === petId)) return 0
-  if (it.type === 'food' && it.track_by !== 'units') {
+  if (isWeightFood(it)) {
     const total = sp.reduce((s, p) => s + Number(p.daily_grams ?? 0), 0)
     const mine = Number(sp.find((p) => p.pet_id === petId)?.daily_grams ?? 0)
     if (total > 0) return mine / total
@@ -52,7 +55,7 @@ export interface EstimateLine {
   /** € per month for this pet; null when it can't be worked out */
   perMonth: number | null
   /** why there's no estimate */
-  missing: 'price' | 'duration' | 'as_needed' | null
+  missing: 'price' | 'duration' | 'as_needed' | 'occasional' | null
   /** price used for the estimate: the saved price, or else what was last paid */
   unitPrice: number | null
   /** the estimate uses the last logged purchase because no price is saved */
@@ -83,6 +86,7 @@ export function monthlyLines(items: StockItem[], petId: string, paid: Record<str
     const unitPrice = it.price != null ? Number(it.price) : fromLastPaid?.amount ?? null
     let missing: EstimateLine['missing'] = null
     if (it.type === 'med' && it.frequency === 'as_needed') missing = 'as_needed'
+    else if (isCountItem(it)) missing = 'occasional'
     else if (unitPrice == null) missing = 'price'
     else if (!packDays || packDays <= 0) missing = 'duration'
     const perMonth = missing ? null : round2((unitPrice! / packDays!) * 30 * share)
@@ -130,7 +134,8 @@ export async function logOrder(opts: {
     item_id: l.item.id,
     store_id: opts.storeId,
     order_id: orderId,
-    quantity: l.qty
+    quantity: l.qty,
+    one_off: isOneOffItem(l.item)
   }))
   const itemsSum = rows.reduce((s, r) => s + Number(r.amount ?? 0), 0)
   const extra = round2(opts.total - itemsSum)

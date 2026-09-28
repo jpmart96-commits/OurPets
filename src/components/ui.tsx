@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { IconBack, IconBox, IconBowl, IconCamera, IconCart, IconHome, IconPaw, IconPill } from './icons'
+import { IconBack, IconBox, IconBowl, IconCamera, IconCart, IconCoin, IconHome, IconPaw, IconPill } from './icons'
 import { useApp, type OwnerFilter } from '../lib/store'
 import type { ItemType } from '../lib/types'
 import type { Tone } from '../lib/calc'
@@ -10,7 +10,8 @@ export function TabBar() {
     { to: '/', label: 'Today', icon: IconHome, end: true },
     { to: '/pets', label: 'Pets', icon: IconPaw },
     { to: '/stock', label: 'Stock', icon: IconBox },
-    { to: '/shop', label: 'Shop', icon: IconCart }
+    { to: '/shop', label: 'Shop', icon: IconCart },
+    { to: '/costs', label: 'Costs', icon: IconCoin }
   ]
   return (
     <nav className="tabbar" aria-label="Main">

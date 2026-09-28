@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import { addDays, ageText, fmtDate, fmtDateTime, fmtShort, fmtTime, parseISO, todayISO } from '../lib/dates'
-import { daysShort, daysText, euro, stockTone, expiryText, expiryWarn, fmtNum, isDueOn, itemInfo, medChangeText, medStart, medTimes, scheduleText, showExpiry, unitFor, isUnitFood, unitRateText } from '../lib/calc'
+import { courseText, isCountItem, daysShort, daysText, euro, stockTone, expiryText, expiryWarn, fmtNum, isDueOn, itemInfo, medChangeText, medStart, medTimes, scheduleText, showExpiry, unitFor, isUnitFood, unitRateText } from '../lib/calc'
 import { cycleDose, logAsNeeded, refill, slotState } from '../lib/actions'
 import type { Appointment, DocumentRow, DoseLog, Expense, HealthNote, MedChange, StockItem, Weight } from '../lib/types'
 import { Avatar, BackLink, Bar, ToneBadge, ErrorNote, ItemThumb, Loading, Screen, Segmented } from '../components/ui'
@@ -134,7 +134,7 @@ export default function PetDetail() {
                   <Link key={it.id} to={`/stock/${it.id}`} className="card-row" style={{ textDecoration: 'none', color: 'inherit' }}>
                     <ItemThumb type={it.type} src={photoUrl(it.photo_path)} />
                     <div className="grow"><div className="row-title">{it.name}</div>
-                      <div className="row-sub">{it.type === 'med' ? scheduleText(it) : isUnitFood(it) ? unitRateText(it.unit_label, it.unit_days) : it.type === 'food' ? `${fmtNum(it.stock_item_pets.find((p) => p.pet_id === pet.id)?.daily_grams ?? 0)} g/day` : ''}</div></div>
+                      <div className="row-sub">{it.type === 'med' ? scheduleText(it) : isCountItem(it) ? (it.rebuy ? 'Used now and then' : 'Used now and then · not bought again') : isUnitFood(it) ? unitRateText(it.unit_label, it.unit_days) : it.type === 'food' ? `${fmtNum(it.stock_item_pets.find((p) => p.pet_id === pet.id)?.daily_grams ?? 0)} g/day` : ''}</div></div>
                     {info.daysLeft != null ? <ToneBadge tone={stockTone(info)}>{daysShort(info.daysLeft)}</ToneBadge>
                       : info.countNow != null ? <ToneBadge tone={stockTone(info)}>{fmtNum(info.countNow)} left</ToneBadge> : null}
                   </Link>
@@ -231,7 +231,7 @@ function MedCard({ item, mine, logs, history, busy, onRefill, onLog, onCycle }: 
   const [showHistory, setShowHistory] = useState(false)
   const info = itemInfo(item)
   const today = todayISO()
-  const status = item.status === 'active' ? (item.frequency === 'as_needed' ? 'As needed' : 'Active') : item.status === 'paused' ? 'Paused' : 'Finished'
+  const status = item.status === 'active' ? (item.frequency === 'as_needed' ? 'As needed' : info.course ? 'Course' : 'Active') : item.status === 'paused' ? 'Paused' : 'Finished'
   const week = item.frequency === 'daily' && item.status === 'active'
     ? Array.from({ length: 7 }, (_, i) => {
       const d = addDays(today, i - 6)
@@ -267,7 +267,8 @@ function MedCard({ item, mine, logs, history, busy, onRefill, onLog, onCycle }: 
           <div className="row between small">
             <span className="tabular" style={{ fontWeight: 600 }}>{fmtNum(info.countNow)}{item.box_size ? ` of ${fmtNum(Number(item.box_size))}` : ''} {unitFor(item)} left</span>
             <span className={'tone-text-' + stockTone(info)}>
-              {info.daysLeft != null ? `${daysText(info.daysLeft).replace('About ', '').replace(' left', '')}${info.orderBy ? ` · order by ${fmtShort(info.orderBy)}` : ''}` : `alert at ${fmtNum(Number(item.alert_at ?? 2))}`}
+              {info.daysLeft != null ? `${daysText(info.daysLeft).replace('About ', '').replace(' left', '')}${info.orderBy ? ` · order by ${fmtShort(info.orderBy)}` : ''}`
+                : info.course ? 'enough to finish the course' : `alert at ${fmtNum(Number(item.alert_at ?? 2))}`}
             </span>
           </div>
           {info.pct != null && <Bar pct={info.pct} tone={stockTone(info)} label={`${info.daysLeft} days left`} />}
@@ -306,6 +307,9 @@ function MedCard({ item, mine, logs, history, busy, onRefill, onLog, onCycle }: 
           )}
           <div className="small muted" style={{ marginTop: 8 }}>{missed ? `${missed} missed in the last week · tap a day to change` : 'Nothing missed this week · tap a day to mark a missed dose'}</div>
         </div>
+      )}
+      {info.course && !info.course.ended && item.status === 'active' && (
+        <div className="small muted">Day {Math.min(info.course.day, info.course.totalDays)} of {info.course.totalDays} · {courseText(info.course).replace(/^\w/, (x) => x.toLowerCase())}{info.course.covered ? '' : ` · ${fmtNum(info.course.short)} ${unitFor(item, info.course.short)} short to finish it`}</div>
       )}
       {!week && item.status === 'active' && item.frequency !== 'as_needed' && isDueOn(item, today) && <div className="small muted">Due today</div>}
       {showExpiry(info) && <div className={'small ' + (expiryWarn(info) ? 'warn-text' : 'muted')}>{expiryText(info, item.expires_on)}</div>}
