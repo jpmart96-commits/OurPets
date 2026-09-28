@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useParams } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
-import { addDays, ageText, fmtDate, fmtDateTime, fmtShort, parseISO, todayISO } from '../lib/dates'
+import { addDays, ageText, fmtDate, fmtDateTime, fmtShort, fmtTime, parseISO, todayISO } from '../lib/dates'
 import { daysText, fmtNum, isDueOn, itemInfo, medStart, medTimes, scheduleText, unitFor } from '../lib/calc'
-import { logAsNeeded, refill } from '../lib/actions'
-import type { Appointment, DocumentRow, StockItem, Weight } from '../lib/types'
+import { cycleDose, logAsNeeded, refill, slotState } from '../lib/actions'
+import type { Appointment, DocumentRow, DoseLog, StockItem, Weight } from '../lib/types'
 import { Avatar, BackLink, Bar, ErrorNote, ItemThumb, Loading, Screen, Segmented } from '../components/ui'
-import { IconCheck, IconDoc, IconPlus, IconTrash } from '../components/icons'
+import { IconCheck, IconDoc, IconPlus, IconTrash, IconX } from '../components/icons'
 import WeightChart from '../components/WeightChart'
+import { EmergencyCard, VaccinesCard } from '../components/PetHealth'
 
 type Tab = 'overview' | 'meds' | 'weight' | 'records'
 const SPECIES: Record<string, string> = { dog: 'Dog', cat: 'Cat', other: 'Pet' }
@@ -82,6 +83,7 @@ export default function PetDetail() {
 
       {tab === 'overview' && (
         <div className="stack" style={{ gap: 16 }}>
+          <EmergencyCard pet={pet} mine={mine} />
           <div className="grid2">
             <div className="stat"><div className="k">Weight</div><div className="v tabular">{latest ? `${fmtNum(latest.kg)} kg` : '—'}</div>
               {delta != null && <div className="s">{delta > 0 ? '+' : delta < 0 ? '−' : '±'}{Math.abs(delta).toFixed(1)} kg since {fmtShort(baseline!.measured_on).slice(4)}</div>}</div>
@@ -92,6 +94,7 @@ export default function PetDetail() {
           </div>
 
           <AppointmentsCard petId={pet.id} mine={mine} upcoming={upcoming} past={past} run={run} busy={busy} />
+          <VaccinesCard pet={pet} mine={mine} vaccines={app.vaccinations.filter((v) => v.pet_id === pet.id)} run={run} busy={busy} />
 
           {petItems.length > 0 && (
             <section className="card">
@@ -119,7 +122,8 @@ export default function PetDetail() {
           {meds.length === 0 && <p className="hint">No medication for {pet.name} yet.</p>}
           {[...meds].sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1)).map((it) => (
             <MedCard key={it.id} item={it} mine={mine} logs={logs.filter((l) => l.item_id === it.id)}
-              busy={busy} onRefill={() => run(() => refill(it))} onLog={() => run(() => logAsNeeded(it, pet.id))} />
+              busy={busy} onRefill={() => run(() => refill(it))} onLog={() => run(() => logAsNeeded(it, pet.id))}
+              onCycle={(d, t, log) => run(() => cycleDose(it, pet.id, d, t, log))} />
           ))}
           {mine && <Link to={`/stock/new?type=med&pet=${pet.id}`} className="btn dashed block"><IconPlus size={18} />Add medication</Link>}
         </div>
@@ -186,23 +190,31 @@ function AppointmentsCard({ petId, mine, upcoming, past, run, busy }: { petId: s
   )
 }
 
-function MedCard({ item, mine, logs, busy, onRefill, onLog }: {
-  item: StockItem; mine: boolean; logs: { slot_date: string; slot_time: string; given_at: string }[]; busy: boolean; onRefill: () => void; onLog: () => void
+function MedCard({ item, mine, logs, busy, onRefill, onLog, onCycle }: {
+  item: StockItem; mine: boolean; logs: DoseLog[]; busy: boolean; onRefill: () => void; onLog: () => void
+  onCycle: (date: string, time: string, log: DoseLog | undefined) => void
 }) {
+  const [openDay, setOpenDay] = useState<string | null>(null)
   const info = itemInfo(item)
   const today = todayISO()
   const status = item.status === 'active' ? (item.frequency === 'as_needed' ? 'As needed' : 'Active') : item.status === 'paused' ? 'Paused' : 'Finished'
   const week = item.frequency === 'daily' && item.status === 'active'
     ? Array.from({ length: 7 }, (_, i) => {
       const d = addDays(today, i - 6)
-      const times = medTimes(item)
-      const given = times.filter((t) => logs.some((l) => l.slot_date === d && l.slot_time === t)).length
       const before = d < medStart(item)
-      const isToday = d === today
-      return { d, label: parseISO(d).toLocaleString('en', { weekday: 'narrow' }), state: before ? 'none' : given === times.length ? 'ok' : isToday ? 'none' : 'miss' }
+      const slots = before ? [] : medTimes(item).map((t) => {
+        const log = logs.find((l) => l.slot_date === d && l.slot_time === t)
+        return { t, log, state: slotState(d, t, log) }
+      })
+      const state = before ? 'none'
+        : slots.some((x) => x.state === 'missed') ? 'missed'
+        : slots.length && slots.every((x) => x.state === 'given' || x.state === 'auto') ? (slots.every((x) => x.state === 'given') ? 'ok' : 'auto')
+        : 'none'
+      return { d, label: parseISO(d).toLocaleString('en', { weekday: 'narrow' }), state, slots }
     })
     : null
-  const missed = week ? week.filter((w) => w.state === 'miss').length : 0
+  const missed = week ? week.reduce((n, w) => n + w.slots.filter((x) => x.state === 'missed').length, 0) : 0
+  const open = week?.find((w) => w.d === openDay)
   const lastAsNeeded = item.frequency === 'as_needed' ? [...logs].sort((a, b) => b.given_at.localeCompare(a.given_at))[0] : undefined
 
   return (
@@ -232,15 +244,33 @@ function MedCard({ item, mine, logs, busy, onRefill, onLog }: {
         <div>
           <div className="week">
             {week.map((w) => (
-              <div key={w.d}>
-                <span className={'wk ' + w.state} aria-label={`${fmtShort(w.d)}: ${w.state === 'ok' ? 'given' : w.state === 'miss' ? 'missed' : 'not due yet'}`}>
-                  {w.state === 'ok' && <IconCheck size={13} strokeWidth={3} />}
+              <button key={w.d} type="button" aria-pressed={openDay === w.d} disabled={!w.slots.length}
+                onClick={() => setOpenDay(openDay === w.d ? null : w.d)}
+                aria-label={`${fmtShort(w.d)}: ${w.state === 'missed' ? 'a dose was missed' : w.state === 'none' ? 'not due yet' : 'given'}. Show doses`}>
+                <span className={'wk ' + w.state}>
+                  {(w.state === 'ok' || w.state === 'auto') && <IconCheck size={13} strokeWidth={3} />}
+                  {w.state === 'missed' && <IconX size={11} />}
                 </span>
                 {w.label}
-              </div>
+              </button>
             ))}
           </div>
-          <div className="small muted" style={{ marginTop: 8 }}>{missed ? `${missed} missed in the last week` : 'Nothing missed this week'}</div>
+          {open && (
+            <div className="stack-sm" style={{ marginTop: 8, padding: '8px 10px', borderRadius: 10, background: 'var(--surface-2)' }}>
+              <div className="small" style={{ fontWeight: 700 }}>{fmtShort(open.d)}</div>
+              {open.slots.map((x) => (
+                <div key={x.t} className="row between" style={{ gap: 8 }}>
+                  <span className="small">{x.t} · {x.state === 'missed' ? 'Missed (pill added back)' : x.state === 'given' ? `Given ${fmtTime(x.log!.given_at)}` : x.state === 'auto' ? 'Counted as given' : 'Not yet'}</span>
+                  {mine && (
+                    <button className="btn ghost small" disabled={busy} onClick={() => onCycle(open.d, x.t, x.log)}>
+                      {x.state === 'missed' ? 'Mark given' : x.state === 'pending' ? 'Given now' : 'Mark missed'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="small muted" style={{ marginTop: 8 }}>{missed ? `${missed} missed in the last week · tap a day to change` : 'Nothing missed this week · tap a day to mark a missed dose'}</div>
         </div>
       )}
       {!week && item.status === 'active' && item.frequency !== 'as_needed' && isDueOn(item, today) && <div className="small muted">Due today</div>}

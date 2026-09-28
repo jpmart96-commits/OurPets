@@ -21,6 +21,8 @@ export default function PetForm() {
   const [birth, setBirth] = useState('')
   const [chip, setChip] = useState('')
   const [vet, setVet] = useState('')
+  const [em, setEm] = useState({ vet_phone: '', vet_address: '', er_vet_name: '', er_vet_phone: '', allergies: '', conditions: '', insurance: '' })
+  const setE = (k: keyof typeof em) => (e: { target: { value: string } }) => setEm((x) => ({ ...x, [k]: e.target.value }))
   const [notes, setNotes] = useState('')
   const [photo, setPhoto] = useState<File | null>(null)
   const [dropPhoto, setDropPhoto] = useState(false)
@@ -32,6 +34,10 @@ export default function PetForm() {
     setName(existing.name); setSpecies(existing.species); setBreed(existing.breed ?? '')
     setSex(existing.sex ?? ''); setNeutered(existing.neutered == null ? '' : existing.neutered ? 'yes' : 'no')
     setBirth(existing.birth_date ?? ''); setChip(existing.microchip ?? ''); setVet(existing.vet_name ?? ''); setNotes(existing.notes ?? '')
+    setEm({
+      vet_phone: existing.vet_phone ?? '', vet_address: existing.vet_address ?? '', er_vet_name: existing.er_vet_name ?? '',
+      er_vet_phone: existing.er_vet_phone ?? '', allergies: existing.allergies ?? '', conditions: existing.conditions ?? '', insurance: existing.insurance ?? ''
+    })
   }, [existing])
 
   if (id && existing && existing.owner_id !== userId) {
@@ -51,7 +57,8 @@ export default function PetForm() {
       photo_path,
       name: name.trim(), species, breed: breed.trim() || null, sex: sex || null,
       neutered: neutered === '' ? null : neutered === 'yes', birth_date: birth || null,
-      microchip: chip.trim() || null, vet_name: vet.trim() || null, notes: notes.trim() || null
+      microchip: chip.trim() || null, vet_name: vet.trim() || null, notes: notes.trim() || null,
+      ...Object.fromEntries(Object.entries(em).map(([k, v]) => [k, v.trim() || null]))
     }
     const res = existing
       ? await supabase.from('pets').update(row).eq('id', existing.id).select('id').single()
@@ -121,6 +128,36 @@ export default function PetForm() {
         <div className="field">
           <label htmlFor="pv">Vet clinic</label>
           <input id="pv" className="input" value={vet} onChange={(e) => setVet(e.target.value)} />
+        </div>
+
+        <h2 className="section-label" style={{ marginTop: 8 }}>Health &amp; emergency</h2>
+        <div className="field">
+          <label htmlFor="pvp">Vet phone</label>
+          <input id="pvp" className="input" type="tel" inputMode="tel" autoComplete="off" value={em.vet_phone} onChange={setE('vet_phone')} placeholder="+351 …" />
+        </div>
+        <div className="field">
+          <label htmlFor="pva">Vet address</label>
+          <input id="pva" className="input" value={em.vet_address} onChange={setE('vet_address')} />
+        </div>
+        <div className="field">
+          <label htmlFor="pen">24-hour emergency vet</label>
+          <input id="pen" className="input" value={em.er_vet_name} onChange={setE('er_vet_name')} placeholder="Name of the clinic" />
+        </div>
+        <div className="field">
+          <label htmlFor="pep">Emergency vet phone</label>
+          <input id="pep" className="input" type="tel" inputMode="tel" autoComplete="off" value={em.er_vet_phone} onChange={setE('er_vet_phone')} />
+        </div>
+        <div className="field">
+          <label htmlFor="pal">Allergies</label>
+          <input id="pal" className="input" value={em.allergies} onChange={setE('allergies')} placeholder="e.g. chicken, penicillin" />
+        </div>
+        <div className="field">
+          <label htmlFor="pco">Conditions</label>
+          <input id="pco" className="input" value={em.conditions} onChange={setE('conditions')} placeholder="e.g. hip dysplasia, thyroid" />
+        </div>
+        <div className="field">
+          <label htmlFor="pin">Insurance</label>
+          <input id="pin" className="input" value={em.insurance} onChange={setE('insurance')} placeholder="Company and policy number" />
         </div>
         <div className="field">
           <label htmlFor="pno">Notes</label>

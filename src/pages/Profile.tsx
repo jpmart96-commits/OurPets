@@ -6,6 +6,7 @@ import type { Store } from '../lib/types'
 import { Avatar, BackLink, ErrorNote, Screen, Toggle } from '../components/ui'
 import { IconCamera, IconPlus } from '../components/icons'
 import { removePhoto, uploadPhoto } from '../lib/photos'
+import { disablePush, enablePush, isIOS, pushState, sendTestPush, type PushState } from '../lib/push'
 
 export default function Profile() {
   const { profile, profiles, members, pets, stores, userId, household, session, reload, error, othersLabel, photoUrl } = useApp()
@@ -146,6 +147,8 @@ export default function Profile() {
         </div>
       </section>
 
+      <RemindersCard run={run} busy={busy} />
+
       <StoresCard stores={stores} householdId={household?.id} run={run} busy={busy} />
 
       <button className="btn ghost block" onClick={() => supabase.auth.signOut()}>Sign out</button>
@@ -201,6 +204,84 @@ function StoresCard({ stores, householdId, run, busy }: { stores: Store[]; house
           )}
         </form>
       )}
+    </section>
+  )
+}
+
+function RemindersCard({ run, busy }: { run: (fn: () => PromiseLike<{ error: unknown }>) => Promise<void>; busy: boolean }) {
+  const { profile, userId } = useApp()
+  const [state, setState] = useState<PushState | 'loading'>('loading')
+  const [msg, setMsg] = useState<string | null>(null)
+  const [working, setWorking] = useState(false)
+
+  useEffect(() => { void pushState().then(setState) }, [])
+
+  async function turnOn() {
+    if (!userId) return
+    setWorking(true); setMsg(null)
+    try {
+      await enablePush(userId)
+      setState('on')
+      setMsg(await sendTestPush())
+    } catch (e) {
+      setMsg(errMsg(e))
+      setState(await pushState())
+    } finally { setWorking(false) }
+  }
+  async function turnOff() {
+    setWorking(true); setMsg(null)
+    try { await disablePush(); setState('off') } catch (e) { setMsg(errMsg(e)) } finally { setWorking(false) }
+  }
+  async function test() {
+    setWorking(true); setMsg(null)
+    setMsg(await sendTestPush())
+    setWorking(false)
+  }
+  const pref = (key: 'notify_doses' | 'notify_stock' | 'notify_appointments', v: boolean) =>
+    run(() => supabase.from('profiles').update({ [key]: v }).eq('id', userId!))
+
+  return (
+    <section className="card" aria-labelledby="rem-h">
+      <div className="card-head" style={{ paddingBottom: 4 }}><h2 id="rem-h">Reminders</h2></div>
+      <div style={{ padding: '6px 16px 14px' }} className="stack-sm">
+        {state === 'loading' && <div className="hint">Checking this phone…</div>}
+        {state === 'needs-install' && (
+          <div className="note">
+            On iPhone, reminders only work from the home-screen app. In Safari tap <strong>Share</strong> → <strong>Add to Home Screen</strong>, open OurPets from there, and come back to this page.
+          </div>
+        )}
+        {state === 'unsupported' && <div className="note">This browser can't show notifications. {isIOS() ? 'Update iOS to 16.4 or later.' : 'Try Chrome or Safari.'}</div>}
+        {state === 'denied' && <div className="note">Notifications are blocked for OurPets. Allow them in your phone's settings, then reload.</div>}
+        {state === 'off' && (
+          <>
+            <div className="hint">Get a nudge at each dose time, a morning summary, and a reminder 2 hours before appointments.</div>
+            <button className="btn" onClick={turnOn} disabled={working}>{working ? 'Turning on…' : 'Turn on reminders on this phone'}</button>
+          </>
+        )}
+        {state === 'on' && (
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <span className="badge pill good">On for this phone</span>
+            <button className="btn ghost small" onClick={test} disabled={working}>Send a test</button>
+            <button className="btn ghost small" onClick={turnOff} disabled={working}>Turn off</button>
+          </div>
+        )}
+        {msg && <div className="hint" role="status">{msg}</div>}
+      </div>
+      {([
+        ['notify_doses', 'Medication doses', 'At each dose time, and weekly/monthly doses in the summary'],
+        ['notify_stock', 'Running low', 'In the morning summary, on the day to reorder'],
+        ['notify_appointments', 'Appointments & vaccines', '2 hours before, and in the summary the day before']
+      ] as const).map(([key, label, sub]) => (
+        <div key={key} className="card-row">
+          <div className="grow"><div id={`lbl-${key}`} className="row-title">{label}</div><div className="row-sub">{sub}</div></div>
+          <Toggle on={!!profile?.[key]} labelledBy={`lbl-${key}`} onChange={(v) => void pref(key, v)} />
+        </div>
+      ))}
+      <div className="card-row">
+        <label htmlFor="ms" className="grow"><div className="row-title">Morning summary</div><div className="row-sub">What's due today, sent at this time</div></label>
+        <input id="ms" className="input" type="time" style={{ width: 136, flexShrink: 0 }} disabled={busy} value={(profile?.morning_summary ?? '08:00').slice(0, 5)}
+          onChange={(e) => { const v = e.target.value; if (v) void run(() => supabase.from('profiles').update({ morning_summary: v }).eq('id', userId!)) }} />
+      </div>
     </section>
   )
 }

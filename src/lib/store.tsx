@@ -3,7 +3,7 @@ import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { signPhotos } from './photos'
 import { addDays, todayISO } from './dates'
-import type { Appointment, DoseLog, Household, Member, Pet, Profile, StockItem, Store } from './types'
+import type { Appointment, DoseLog, Household, Member, Pet, Profile, StockItem, Store, Vaccination } from './types'
 
 export type OwnerFilter = 'mine' | 'others' | 'all'
 
@@ -17,11 +17,12 @@ interface Data {
   items: StockItem[]
   logs: DoseLog[]
   appointments: Appointment[]
+  vaccinations: Vaccination[]
   photos: Record<string, string>
 }
 
 const empty: Data = {
-  profile: null, household: null, members: [], profiles: [], pets: [], stores: [], items: [], logs: [], appointments: [], photos: {}
+  profile: null, household: null, members: [], profiles: [], pets: [], stores: [], items: [], logs: [], appointments: [], vaccinations: [], photos: {}
 }
 
 interface Ctx extends Data {
@@ -68,7 +69,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setError(null)
     try {
       const since = addDays(todayISO(), -14)
-      const [pr, hm, hh, pets, stores, items, logs, appts] = await Promise.all([
+      const [pr, hm, hh, pets, stores, items, logs, appts, vax] = await Promise.all([
         supabase.from('profiles').select('*'),
         supabase.from('household_members').select('*'),
         supabase.from('households').select('*').limit(1),
@@ -76,9 +77,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         supabase.from('stores').select('*').order('name'),
         supabase.from('stock_items').select('*, stock_item_pets(*)').order('name'),
         supabase.from('dose_logs').select('*').gte('slot_date', since),
-        supabase.from('appointments').select('*').gte('starts_at', new Date(Date.now() - 86400000).toISOString()).order('starts_at')
+        supabase.from('appointments').select('*').gte('starts_at', new Date(Date.now() - 86400000).toISOString()).order('starts_at'),
+        supabase.from('vaccinations').select('*').order('next_due', { nullsFirst: false })
       ])
-      const firstErr = [pr, hm, hh, pets, stores, items, logs, appts].find((r) => r.error)?.error
+      const firstErr = [pr, hm, hh, pets, stores, items, logs, appts, vax].find((r) => r.error)?.error
       if (firstErr) throw firstErr
       const profiles = (pr.data ?? []) as Profile[]
       const petRows = (pets.data ?? []) as Pet[]
@@ -98,7 +100,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         stores: (stores.data ?? []) as Store[],
         items: itemRows,
         logs: (logs.data ?? []) as DoseLog[],
-        appointments: (appts.data ?? []) as Appointment[]
+        appointments: (appts.data ?? []) as Appointment[],
+        vaccinations: (vax.data ?? []) as Vaccination[]
       })
     } catch (e) {
       setError(e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Could not load your data')

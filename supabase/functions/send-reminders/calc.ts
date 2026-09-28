@@ -1,5 +1,5 @@
-import type { MedForm, StockItem } from './types'
-import { addDays, daysBetween, parseISO, toISO, todayISO } from './dates'
+import type { MedForm, StockItem } from './types.ts'
+import { addDays, daysBetween, parseISO, toISO, todayISO } from './dates.ts'
 
 export const UNIT_PLURAL: Record<MedForm, string> = {
   tablet: 'tablets', chew: 'chews', capsule: 'capsules', sachet: 'sachets', dose: 'doses'

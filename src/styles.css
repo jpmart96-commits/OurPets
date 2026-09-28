@@ -218,3 +218,12 @@ input[type="date"].input::-webkit-date-and-time-value, input[type="time"].input:
 input[type="date"].input::-webkit-calendar-picker-indicator { margin-left: auto; }
 .file-pick { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 14px; border-radius: 12px; border: 1.5px dashed var(--dash); background: var(--surface); cursor: pointer; }
 .file-pick .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* dose states */
+.tick.auto span { width: 26px; height: 26px; border-radius: 13px; border: 0; background: var(--accent-soft-2); color: var(--accent); }
+.tick.given span { width: 26px; height: 26px; border-radius: 13px; border: 0; background: var(--accent); color: #fff; }
+.tick.missed span { width: 26px; height: 26px; border-radius: 13px; border: 2px dashed var(--warn-bar); background: var(--warn-soft); color: var(--warn); }
+.wk.missed { border: 2px dashed var(--warn-bar); background: var(--warn-soft); color: var(--warn); }
+.wk.auto { background: var(--accent-soft-2); color: var(--accent); }
+.week button { border: 0; background: transparent; padding: 4px 0; display: flex; flex-direction: column; align-items: center; gap: 5px; width: 40px; font-size: 11px; font-weight: 600; color: var(--muted); border-radius: 10px; }
+.week button[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); outline: 1px solid var(--line); }
