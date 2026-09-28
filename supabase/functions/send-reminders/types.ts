@@ -106,6 +106,11 @@ export interface StockItem {
   ordered_at: string | null
   created_at: string
   photo_path: string | null
+  /** best-before of the box/pack in use */
+  expires_on: string | null
+  /** food by units: how long an opened can keeps, in hours */
+  open_life_hours: number | null
+  last_order_id: string | null
   stock_item_pets: StockPet[]
 }
 
@@ -155,5 +160,50 @@ export interface DocumentRow {
   storage_path: string
   mime_type: string | null
   size_bytes: number | null
+  created_at: string
+}
+
+export interface HealthNote {
+  id: string
+  pet_id: string
+  noted_at: string
+  tags: string[]
+  note: string | null
+  photo_path: string | null
+  created_by: string | null
+}
+
+export interface MedChange {
+  id: string
+  item_id: string
+  changed_at: string
+  kind: 'start' | 'change'
+  dose: number | null
+  frequency: Frequency | null
+  dose_times: string[] | null
+  status: ItemStatus | null
+  prev_dose: number | null
+  prev_frequency: Frequency | null
+  prev_dose_times: string[] | null
+  prev_status: ItemStatus | null
+  reason: string | null
+}
+
+export type ExpenseCategory = 'food' | 'med' | 'supply' | 'vet' | 'insurance' | 'grooming' | 'shipping' | 'other'
+
+export interface Expense {
+  id: string
+  household_id: string
+  owner_id: string
+  spent_on: string
+  amount: number
+  category: ExpenseCategory
+  title: string
+  pet_ids: string[]
+  item_id: string | null
+  store_id: string | null
+  order_id: string | null
+  quantity: number | null
+  note: string | null
   created_at: string
 }

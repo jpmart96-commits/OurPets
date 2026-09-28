@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { errMsg } from '../lib/supabase'
+import { fmtDateTime } from '../lib/dates'
 import { agoText, fmtNum, unitRateSuggestion, unitRateText, unitTapCheck, unitWord, type ItemInfo } from '../lib/calc'
 import { addUnitPack, countUnits, openedUnit, setUnitDays } from '../lib/actions'
 import type { StockItem } from '../lib/types'
@@ -77,6 +78,15 @@ export function UnitFood({ item, info, mine, compact, reload }: {
 
       {st.unopened === 0 && mine && (
         <div className="small warn-text">This is the last {one}. Tap “+1 pack” when your order arrives.</div>
+      )}
+
+      {info.useBy && (
+        <div className={'small ' + (info.pastUseBy ? 'warn-text' : 'muted')} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+          {info.pastUseBy
+            ? `The open ${one} was due to be used by ${fmtDateTime(info.useBy.toISOString())}. Throw out what's left${mine ? ` and tap “Opened a new ${one}”` : ''}.`
+            : `Open ${one}: use by ${fmtDateTime(info.useBy.toISOString())}`}
+          <InfoTip label="About the use-by time">When the current {one} was opened plus how long an opened {one} keeps ({item.open_life_hours} h, set on the item).</InfoTip>
+        </div>
       )}
 
       {asking && (

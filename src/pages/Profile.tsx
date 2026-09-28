@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../lib/store'
-import { supabase, errMsg } from '../lib/supabase'
+import { supabase, errMsg, SUPABASE_URL } from '../lib/supabase'
 import type { Store } from '../lib/types'
-import { Avatar, BackLink, ErrorNote, Screen, Toggle, FieldLabel } from '../components/ui'
+import { Avatar, BackLink, ErrorNote, Screen, Toggle, FieldLabel, InfoTip } from '../components/ui'
 import { IconCamera, IconPlus } from '../components/icons'
 import { removePhoto, uploadPhoto } from '../lib/photos'
 import { disablePush, enablePush, isIOS, pushState, sendTestPush, type PushState } from '../lib/push'
@@ -149,6 +149,8 @@ export default function Profile() {
 
       <RemindersCard run={run} busy={busy} />
 
+      <CalendarCard />
+
       <StoresCard stores={stores} householdId={household?.id} run={run} busy={busy} />
 
       <button className="btn ghost block" onClick={() => supabase.auth.signOut()}>Sign out</button>
@@ -281,6 +283,72 @@ function RemindersCard({ run, busy }: { run: (fn: () => PromiseLike<{ error: unk
         <label htmlFor="ms" className="grow"><div className="row-title">Morning summary</div><div className="row-sub">What's due today, sent at this time</div></label>
         <input id="ms" className="input" type="time" style={{ width: 136, flexShrink: 0 }} disabled={busy} value={(profile?.morning_summary ?? '08:00').slice(0, 5)}
           onChange={(e) => { const v = e.target.value; if (v) void run(() => supabase.from('profiles').update({ morning_summary: v }).eq('id', userId!)) }} />
+      </div>
+    </section>
+  )
+}
+
+function CalendarCard() {
+  const { shared, othersLabel } = useApp()
+  const [token, setToken] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const [all, setAll] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [working, setWorking] = useState(false)
+
+  useEffect(() => {
+    void supabase.from('calendar_feeds').select('token').maybeSingle().then(({ data }) => { setToken((data?.token as string) ?? null); setLoaded(true) })
+  }, [])
+
+  async function getLink(reset = false) {
+    if (reset && !window.confirm('Make a new link? The old one stops working, so calendars using it stop updating until you add the new one.')) return
+    setWorking(true); setMsg(null)
+    const { data, error } = await supabase.rpc('calendar_token', { p_reset: reset })
+    setWorking(false)
+    if (error) { setMsg(errMsg(error)); return }
+    setToken(String(data))
+    if (reset) setMsg('New link made. Remove the old OurPets calendar from your calendar app and add this one.')
+  }
+
+  const https = token ? `${SUPABASE_URL}/functions/v1/calendar?t=${token}${all ? '&scope=all' : ''}` : ''
+  const webcal = https.replace(/^https:/, 'webcal:')
+  const google = `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcal)}`
+
+  async function copy() {
+    try { await navigator.clipboard.writeText(https); setMsg('Link copied.') } catch { setMsg('Copy the link above by hand.') }
+  }
+
+  return (
+    <section className="card" aria-labelledby="cal-h">
+      <div className="card-head" style={{ paddingBottom: 4 }}>
+        <h2 id="cal-h" style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>Calendar
+          <InfoTip label="About the calendar feed">A private link your calendar app subscribes to. It shows appointments, vaccines &amp; treatments when they're due, and “Order …” on the day each item needs ordering. Your calendar app checks it every few hours (Google can take up to a day), so it follows changes on its own. Anyone with the link can see these events: keep it to yourself, and make a new link if it leaks.</InfoTip>
+        </h2>
+      </div>
+      <div style={{ padding: '6px 16px 14px' }} className="stack-sm">
+        {!loaded ? <div className="hint">Loading…</div> : !token ? (
+          <>
+            <div className="hint">See appointments, vaccines due and reorder dates in Google Calendar, Apple Calendar or Outlook, next to everything else.</div>
+            <button className="btn" onClick={() => void getLink()} disabled={working}>{working ? 'Making link…' : 'Get my calendar link'}</button>
+          </>
+        ) : (
+          <>
+            {shared && (
+              <div className="row" style={{ gap: 8 }}>
+                <div className="grow"><div id="cal-all" className="row-title">Include {othersLabel} pets</div><div className="row-sub">Off: only your pets</div></div>
+                <Toggle on={all} labelledBy="cal-all" onChange={setAll} />
+              </div>
+            )}
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <a className="btn small" href={google} target="_blank" rel="noopener">Add to Google Calendar</a>
+              <a className="btn ghost small" href={webcal}>iPhone / Mac / Outlook</a>
+              <button className="btn ghost small" onClick={() => void copy()}>Copy link</button>
+            </div>
+            <div className="small muted" style={{ wordBreak: 'break-all', lineHeight: 1.4 }}>{https}</div>
+            <button className="link-btn" style={{ alignSelf: 'flex-start', minHeight: 32, padding: 0, color: 'var(--muted-2)' }} onClick={() => void getLink(true)} disabled={working}>Make a new link</button>
+          </>
+        )}
+        {msg && <div className="hint" role="status">{msg}</div>}
       </div>
     </section>
   )

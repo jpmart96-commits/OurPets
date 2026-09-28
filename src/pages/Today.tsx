@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { errMsg } from '../lib/supabase'
 import { addDays, daysBetween, fmtDateTime, fmtShort, fmtTime, fmtToday, greeting, relDay, todayISO } from '../lib/dates'
-import { fmtNum, isDueOn, isUnitFood, itemInfo, medTimes, nextDue, unitFor, unitWord } from '../lib/calc'
+import { expiryText, expiryWarn, fmtNum, isDueOn, isUnitFood, itemInfo, medTimes, nextDue, unitFor, unitWord } from '../lib/calc'
 import { Avatar, Empty, ErrorNote, InfoTip, ItemThumb, Loading, OwnerSwitch, Screen } from '../components/ui'
 import { UnitFood } from '../components/UnitFood'
 import { IconCalendar, IconCart, IconCheck, IconPill, IconX } from '../components/icons'
@@ -54,6 +54,14 @@ export default function Today() {
   const cans = useMemo(() => items
     .filter((it) => it.owner_id === userId && it.status === 'active' && isUnitFood(it) && it.unit_days)
     .map((it) => ({ it, info: itemInfo(it) })),
+  [items, userId])
+
+  // expired / expiring within 14 days / expires before it runs out, plus open cans past their use-by
+  const dates = useMemo(() => items
+    .filter((it) => it.owner_id === userId && it.status === 'active')
+    .map((it) => ({ it, info: itemInfo(it) }))
+    .filter(({ info }) => expiryWarn(info) || info.pastUseBy)
+    .sort((a, b) => (a.info.pastUseBy ? -999 : a.info.expiresIn ?? 999) - (b.info.pastUseBy ? -999 : b.info.expiresIn ?? 999)),
   [items, userId])
 
   const upcoming = useMemo(() => {
@@ -189,6 +197,22 @@ export default function Today() {
         </section>
       )}
 
+      {dates.length > 0 && (
+        <section className="card" aria-labelledby="dt-h">
+          <div className="card-head"><h2 id="dt-h" style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>Check dates
+            <InfoTip label="About this card">Items whose expiry date has passed, is within 2 weeks, or comes before you'd finish them, and open cans past their use-by time. Update the date on the item when a new pack arrives.</InfoTip></h2></div>
+          {dates.map(({ it, info }) => (
+            <Link key={it.id} to={`/stock/${it.id}`} className="card-row" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <ItemThumb type={it.type} src={app.photoUrl(it.photo_path)} />
+              <div className="grow">
+                <div className="row-title">{it.name}</div>
+                <div className="row-sub warn-text">{info.pastUseBy ? `Open ${unitWord(it.unit_label, 1)} is past its use-by` : expiryText(info, it.expires_on)}</div>
+              </div>
+            </Link>
+          ))}
+        </section>
+      )}
+
       {upcoming.length > 0 && (
         <section className="card" aria-labelledby="up-h">
           <div className="card-head"><h2 id="up-h">Coming up</h2></div>
@@ -204,7 +228,7 @@ export default function Today() {
         </section>
       )}
 
-      {myPets.length > 0 && slots.length === 0 && low.length === 0 && upcoming.length === 0 && cans.length === 0 && (
+      {myPets.length > 0 && slots.length === 0 && low.length === 0 && upcoming.length === 0 && cans.length === 0 && dates.length === 0 && (
         <Empty title="All clear">
           <div className="hint">Nothing due today. Add medication or food to {myPets[0].name}'s stock to get reminders.</div>
           <Link to="/stock/new?type=med" className="btn ghost" style={{ alignSelf: 'flex-start' }}><IconPill size={18} />Add medication</Link>

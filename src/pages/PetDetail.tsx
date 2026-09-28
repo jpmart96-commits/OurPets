@@ -3,15 +3,18 @@ import { Link, useParams } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import { addDays, ageText, fmtDate, fmtDateTime, fmtShort, fmtTime, parseISO, todayISO } from '../lib/dates'
-import { daysText, fmtNum, isDueOn, itemInfo, medStart, medTimes, scheduleText, unitFor, isUnitFood, unitRateText } from '../lib/calc'
+import { daysText, euro, expiryText, expiryWarn, fmtNum, isDueOn, itemInfo, medChangeText, medStart, medTimes, scheduleText, showExpiry, unitFor, isUnitFood, unitRateText } from '../lib/calc'
 import { cycleDose, logAsNeeded, refill, slotState } from '../lib/actions'
-import type { Appointment, DocumentRow, DoseLog, StockItem, Weight } from '../lib/types'
+import type { Appointment, DocumentRow, DoseLog, Expense, HealthNote, MedChange, StockItem, Weight } from '../lib/types'
 import { Avatar, BackLink, Bar, ErrorNote, ItemThumb, Loading, Screen, Segmented } from '../components/ui'
 import { IconCheck, IconDoc, IconPlus, IconTrash, IconX } from '../components/icons'
 import WeightChart from '../components/WeightChart'
 import { EmergencyCard, VaccinesCard } from '../components/PetHealth'
+import { TimelineTab } from '../components/Timeline'
+import { monthlyRunRate, petShare } from '../lib/costs'
+import { tagLabel } from '../lib/health'
 
-type Tab = 'overview' | 'meds' | 'weight' | 'records'
+type Tab = 'overview' | 'timeline' | 'meds' | 'weight' | 'records'
 const SPECIES: Record<string, string> = { dog: 'Dog', cat: 'Cat', other: 'Pet' }
 
 export default function PetDetail() {
@@ -24,27 +27,42 @@ export default function PetDetail() {
   const [weights, setWeights] = useState<Weight[]>([])
   const [docs, setDocs] = useState<DocumentRow[]>([])
   const [appts, setAppts] = useState<Appointment[]>([])
+  const [notes, setNotes] = useState<HealthNote[]>([])
+  const [changes, setChanges] = useState<MedChange[]>([])
+  const [missed, setMissed] = useState<DoseLog[]>([])
+  const [expenses, setExpenses] = useState<Expense[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  const petItems = useMemo(() => items.filter((it) => it.stock_item_pets.some((p) => p.pet_id === id)), [items, id])
+  const meds = petItems.filter((it) => it.type === 'med')
+  const medKey = meds.map((m) => m.id).sort().join(',')
+
   const load = useCallback(async () => {
     if (!id) return
-    const [w, d, a] = await Promise.all([
+    const medIds = medKey ? medKey.split(',') : []
+    const yearAgo = addDays(todayISO(), -400)
+    const [w, d, a, n, c, m, x] = await Promise.all([
       supabase.from('weights').select('*').eq('pet_id', id).order('measured_on'),
       supabase.from('documents').select('*').eq('pet_id', id).order('created_at', { ascending: false }),
-      supabase.from('appointments').select('*').eq('pet_id', id).order('starts_at')
+      supabase.from('appointments').select('*').eq('pet_id', id).order('starts_at'),
+      supabase.from('health_notes').select('*').eq('pet_id', id).order('noted_at', { ascending: false }).limit(500),
+      medIds.length ? supabase.from('med_changes').select('*').in('item_id', medIds).order('changed_at') : Promise.resolve({ data: [], error: null }),
+      supabase.from('dose_logs').select('*').eq('pet_id', id).eq('status', 'missed').gte('slot_date', yearAgo),
+      supabase.from('expenses').select('*').contains('pet_ids', [id]).gte('spent_on', yearAgo).order('spent_on', { ascending: false })
     ])
-    const e = w.error || d.error || a.error
+    const e = w.error || d.error || a.error || n.error || c.error || m.error || x.error
     if (e) setError(errMsg(e))
     setWeights((w.data ?? []) as Weight[])
     setDocs((d.data ?? []) as DocumentRow[])
     setAppts((a.data ?? []) as Appointment[])
-  }, [id])
+    setNotes((n.data ?? []) as HealthNote[])
+    setChanges((c.data ?? []) as MedChange[])
+    setMissed((m.data ?? []) as DoseLog[])
+    setExpenses((x.data ?? []) as Expense[])
+  }, [id, medKey])
 
   useEffect(() => { void load() }, [load])
-
-  const petItems = useMemo(() => items.filter((it) => it.stock_item_pets.some((p) => p.pet_id === id)), [items, id])
-  const meds = petItems.filter((it) => it.type === 'med')
 
   if (!pet) return app.loading ? <Loading /> : <Screen><BackLink to="/pets" label="Pets" /><p className="note">This pet isn't here any more.</p></Screen>
 
@@ -76,8 +94,8 @@ export default function PetDetail() {
       </header>
 
       <div role="tablist" aria-label={`${pet.name} sections`}>
-        <Segmented<Tab> label={`${pet.name} sections`} value={tab} onChange={setTab}
-          options={[{ id: 'overview', label: 'Overview' }, { id: 'meds', label: 'Meds' }, { id: 'weight', label: 'Weight' }, { id: 'records', label: 'Records' }]} />
+        <Segmented<Tab> label={`${pet.name} sections`} value={tab} onChange={setTab} tight
+          options={[{ id: 'overview', label: 'Overview' }, { id: 'timeline', label: 'Timeline' }, { id: 'meds', label: 'Meds' }, { id: 'weight', label: 'Weight' }, { id: 'records', label: 'Files' }]} />
       </div>
       <ErrorNote msg={error} />
 
@@ -95,6 +113,17 @@ export default function PetDetail() {
 
           <AppointmentsCard petId={pet.id} mine={mine} upcoming={upcoming} past={past} run={run} busy={busy} />
           <VaccinesCard pet={pet} mine={mine} vaccines={app.vaccinations.filter((v) => v.pet_id === pet.id)} run={run} busy={busy} />
+
+          <button type="button" className="card pad row" onClick={() => setTab('timeline')} style={{ textAlign: 'left', width: '100%', font: 'inherit', color: 'inherit' }}>
+            <div className="icon-tile soft" aria-hidden="true"><span style={{ fontSize: 15, fontWeight: 800 }}>✎</span></div>
+            <div className="grow">
+              <div className="row-title">Journal</div>
+              <div className="row-sub">{notes[0] ? `Last note ${fmtShort(notes[0].noted_at.slice(0, 10))}: ${notes[0].tags.length ? notes[0].tags.map(tagLabel).join(', ') : (notes[0].note ?? '').slice(0, 40)}` : `Note how ${pet.name} is doing: appetite, vomiting, energy…`}</div>
+            </div>
+            <span className="small" style={{ color: 'var(--accent)', fontWeight: 600 }}>{mine ? 'Add' : 'Open'}</span>
+          </button>
+
+          <CostsCard petId={pet.id} expenses={expenses} runRate={monthlyRunRate(petItems, pet.id)} />
 
           {petItems.length > 0 && (
             <section className="card">
@@ -121,7 +150,7 @@ export default function PetDetail() {
         <div className="stack">
           {meds.length === 0 && <p className="hint">No medication for {pet.name} yet.</p>}
           {[...meds].sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1)).map((it) => (
-            <MedCard key={it.id} item={it} mine={mine} logs={logs.filter((l) => l.item_id === it.id)}
+            <MedCard key={it.id} item={it} mine={mine} logs={logs.filter((l) => l.item_id === it.id)} history={changes.filter((c) => c.item_id === it.id)}
               busy={busy} onRefill={() => run(() => refill(it))} onLog={() => run(() => logAsNeeded(it, pet.id))}
               onCycle={(d, t, log) => run(() => cycleDose(it, pet.id, d, t, log))} />
           ))}
@@ -129,6 +158,10 @@ export default function PetDetail() {
         </div>
       )}
 
+      {tab === 'timeline' && (
+        <TimelineTab pet={pet} mine={mine} notes={notes} weights={weights} changes={changes} missed={missed} appts={appts}
+          vaccines={app.vaccinations.filter((v) => v.pet_id === pet.id)} docs={docs} expenses={expenses} items={meds} run={run} busy={busy} setError={setError} />
+      )}
       {tab === 'weight' && <WeightTab petId={pet.id} mine={mine} weights={weights} run={run} busy={busy} />}
       {tab === 'records' && <RecordsTab petId={pet.id} mine={mine} docs={docs} run={run} busy={busy} setError={setError} />}
     </Screen>
@@ -190,11 +223,12 @@ function AppointmentsCard({ petId, mine, upcoming, past, run, busy }: { petId: s
   )
 }
 
-function MedCard({ item, mine, logs, busy, onRefill, onLog, onCycle }: {
-  item: StockItem; mine: boolean; logs: DoseLog[]; busy: boolean; onRefill: () => void; onLog: () => void
+function MedCard({ item, mine, logs, history, busy, onRefill, onLog, onCycle }: {
+  item: StockItem; mine: boolean; logs: DoseLog[]; history: MedChange[]; busy: boolean; onRefill: () => void; onLog: () => void
   onCycle: (date: string, time: string, log: DoseLog | undefined) => void
 }) {
   const [openDay, setOpenDay] = useState<string | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
   const info = itemInfo(item)
   const today = todayISO()
   const status = item.status === 'active' ? (item.frequency === 'as_needed' ? 'As needed' : 'Active') : item.status === 'paused' ? 'Paused' : 'Finished'
@@ -274,6 +308,25 @@ function MedCard({ item, mine, logs, busy, onRefill, onLog, onCycle }: {
         </div>
       )}
       {!week && item.status === 'active' && item.frequency !== 'as_needed' && isDueOn(item, today) && <div className="small muted">Due today</div>}
+      {showExpiry(info) && <div className={'small ' + (expiryWarn(info) ? 'warn-text' : 'muted')}>{expiryText(info, item.expires_on)}</div>}
+
+      {history.length > 0 && (
+        <div>
+          <button type="button" className="link-btn" style={{ padding: 0, minHeight: 32 }} aria-expanded={showHistory} onClick={() => setShowHistory(!showHistory)}>
+            {showHistory ? 'Hide history' : `History · ${history.length} ${history.length === 1 ? 'entry' : 'entries'}`}
+          </button>
+          {showHistory && (
+            <div className="stack-sm" style={{ marginTop: 4, padding: '8px 10px', borderRadius: 10, background: 'var(--surface-2)' }}>
+              {[...history].reverse().map((c) => (
+                <div key={c.id} className="small" style={{ lineHeight: 1.45 }}>
+                  <strong>{fmtDate(c.changed_at.slice(0, 10))}</strong> · {medChangeText(c, item.form)}
+                  {c.reason && <div className="muted">“{c.reason}”</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {mine && item.status === 'active' && (
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -411,3 +464,21 @@ function RecordsTab({ petId, mine, docs, run, busy, setError }: { petId: string;
   )
 }
 
+
+function CostsCard({ petId, expenses, runRate }: { petId: string; expenses: Expense[]; runRate: number }) {
+  const month = todayISO().slice(0, 7)
+  const yearAgo = addDays(todayISO(), -365)
+  const thisMonth = expenses.filter((e) => e.spent_on.startsWith(month)).reduce((s, e) => s + petShare(e, petId), 0)
+  const year = expenses.filter((e) => e.spent_on >= yearAgo).reduce((s, e) => s + petShare(e, petId), 0)
+  if (!expenses.length && !runRate) return null
+  return (
+    <Link to={`/costs?pet=${petId}`} className="card pad row" style={{ textDecoration: 'none', color: 'inherit' }}>
+      <div className="icon-tile soft" aria-hidden="true"><span style={{ fontSize: 15, fontWeight: 800 }}>€</span></div>
+      <div className="grow">
+        <div className="row-title">Costs</div>
+        <div className="row-sub">{euro(thisMonth)} this month · {euro(year)} in the last 12 months{runRate ? ` · stock runs ~${euro(runRate)}/month` : ''}</div>
+      </div>
+      <span className="small" style={{ color: 'var(--accent)', fontWeight: 600 }}>See all</span>
+    </Link>
+  )
+}

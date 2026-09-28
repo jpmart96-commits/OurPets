@@ -12,6 +12,7 @@ import StockForm from './pages/StockForm'
 import Shop from './pages/Shop'
 import Profile from './pages/Profile'
 import Join from './pages/Join'
+import Costs from './pages/Costs'
 
 export default function App() {
   const { authReady, session } = useApp()
@@ -50,6 +51,7 @@ export default function App() {
       <Route path="/stock/:id" element={<StockForm />} />
       <Route path="/shop" element={<Shop />} />
       <Route path="/profile" element={<Profile />} />
+      <Route path="/costs" element={<Costs />} />
       <Route path="/join/:code" element={<Join />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

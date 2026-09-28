@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { errMsg } from '../lib/supabase'
 import { fmtShort } from '../lib/dates'
-import { daysText, fmtKg, fmtNum, foodGramsPerDay, isUnitFood, itemInfo, scheduleText, unitFor, unitRateText, unitWord } from '../lib/calc'
+import { daysText, expiryText, expiryWarn, fmtKg, fmtNum, foodGramsPerDay, isUnitFood, itemInfo, scheduleText, showExpiry, unitFor, unitRateText, unitWord } from '../lib/calc'
 import { refill, setFoodLeft } from '../lib/actions'
 import type { ItemType, StockItem } from '../lib/types'
 import { Bar, Chips, Empty, ErrorNote, InfoTip, ItemThumb, OwnerSwitch, Screen } from '../components/ui'
@@ -141,6 +141,12 @@ export default function Stock() {
               <div className={'small ' + (info.lowAsNeeded ? 'warn-text' : 'muted')}>{info.lowAsNeeded ? 'Running low. ' : ''}Given only when needed, so there's no countdown. Alert at {fmtNum(Number(it.alert_at ?? 2))} left.</div>
             ) : (
               <div className="small muted">Add {isUnitFood(it) ? `${unitWord(it.unit_label)} per pack and how long one lasts` : it.type === 'food' ? 'pack size and daily amounts' : it.type === 'supply' ? 'how long a pack lasts' : 'the dose and schedule'} to see days left.</div>
+            )}
+            {showExpiry(info) && (
+              <div className={'small ' + (expiryWarn(info) ? 'warn-text' : 'muted')} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontWeight: expiryWarn(info) ? 600 : 400 }}>
+                {expiryText(info, it.expires_on)}
+                <InfoTip label="About the expiry date">From the “Expires on” date saved on this item{info.expiresFirst ? '. At the current rate it runs out after that date, so part of it may go to waste' : ''}. When a new {it.type === 'med' ? 'box' : 'pack'} arrives, edit the item to update the date.</InfoTip>
+              </div>
             )}
             {editing === it.id && (
               <form className="row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); void saveAmount(it) }}>

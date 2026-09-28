@@ -6,6 +6,7 @@ import { fmtShort } from '../lib/dates'
 import { euro, fmtNum, itemInfo, type ItemInfo } from '../lib/calc'
 import type { StockItem, Store } from '../lib/types'
 import { Bar, Empty, ErrorNote, OwnerSwitch, Screen, InfoTip } from '../components/ui'
+import { deleteOrder, logOrder, round2 } from '../lib/costs'
 import { IconCheck, IconExternal } from '../components/icons'
 
 interface Row { it: StockItem; info: ItemInfo }
@@ -13,10 +14,14 @@ interface Group { key: string; name: string; store?: Store; vet: boolean; rows: 
 
 export default function Shop() {
   const app = useApp()
-  const { items, stores, userId, showOwner, nameOf, reload, error } = app
+  const { items, stores, userId, showOwner, nameOf, reload, error, household } = app
   const [pulled, setPulled] = useState<string[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  // the store whose order is being confirmed (quantities + total → Costs)
+  const [logging, setLogging] = useState<string | null>(null)
+  const [qty, setQty] = useState<Record<string, number>>({})
+  const [total, setTotal] = useState('')
 
   const groups = useMemo(() => {
     const map = new Map<string, Group>()
@@ -45,7 +50,7 @@ export default function Shop() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, stores, pulled, app.filter])
 
-  const total = groups.reduce((s, g) => s + g.rows.length, 0)
+  const count = groups.reduce((s, g) => s + g.rows.length, 0)
   const handled = groups.reduce((s, g) => s + g.rows.filter((r) => r.it.in_cart || r.it.ordered_at).length, 0)
 
   async function update(ids: string[], patch: Partial<StockItem>) {
@@ -53,6 +58,43 @@ export default function Shop() {
     const { error } = await supabase.from('stock_items').update(patch).in('id', ids)
     if (error) setErr(errMsg(error))
     await reload()
+  }
+
+  const lineSum = (rows: Row[], q: Record<string, number>) => round2(rows.reduce((s, r) => s + Number(r.it.price ?? 0) * (q[r.it.id] ?? 1), 0))
+
+  function startOrder(g: Group, rows: Row[]) {
+    const q = Object.fromEntries(rows.map((r) => [r.it.id, 1]))
+    setQty(q); setTotal(String(lineSum(rows, q))); setLogging(g.key)
+  }
+
+  async function placeOrder(g: Group, rows: Row[], withCost: boolean) {
+    setErr(null)
+    let orderId: string | null = null
+    const t = parseFloat(total.replace(',', '.'))
+    if (withCost && household) {
+      if (!Number.isFinite(t)) { setErr('Type the order total, e.g. 42.90'); return }
+      setBusy(g.key)
+      const r = await logOrder({
+        householdId: household.id, storeId: g.store?.id ?? null, storeName: g.vet ? 'Vet' : g.name,
+        lines: rows.map((r) => ({ item: r.it, qty: qty[r.it.id] ?? 1, amount: Number(r.it.price ?? 0) * (qty[r.it.id] ?? 1) })),
+        total: t
+      })
+      if (r.error) { setBusy(null); setErr(errMsg(r.error)); return }
+      orderId = r.orderId
+    }
+    setBusy(g.key)
+    await update(rows.map((r) => r.it.id), { ordered_at: new Date().toISOString(), in_cart: true, last_order_id: orderId })
+    setBusy(null); setLogging(null)
+  }
+
+  async function undoOrder(rows: Row[]) {
+    const orderId = rows.find((r) => r.it.last_order_id)?.it.last_order_id
+    if (orderId && !window.confirm('Undo this order? Its cost is removed from Costs too.')) return
+    if (orderId) {
+      const r = await deleteOrder(orderId)
+      if (r.error) { setErr(errMsg(r.error)); return }
+    }
+    await update(rows.map((r) => r.it.id), { ordered_at: null, last_order_id: null })
   }
 
   async function addToCart(g: Group, r: Row) {
@@ -67,15 +109,18 @@ export default function Shop() {
 
   return (
     <Screen>
-      <header>
-        <h1 className="title">Shopping run</h1>
-        <div className="sub">{total ? `${handled} of ${total} handled · ${groups.length} ${groups.length === 1 ? 'place' : 'places'}` : 'Nothing to buy this week'}</div>
+      <header className="row between" style={{ alignItems: 'flex-start' }}>
+        <div>
+          <h1 className="title">Shopping run</h1>
+          <div className="sub">{count ? `${handled} of ${count} handled · ${groups.length} ${groups.length === 1 ? 'place' : 'places'}` : 'Nothing to buy this week'}</div>
+        </div>
+        <Link to="/costs" className="btn ghost small" aria-label="Costs: what you've spent">€ Costs</Link>
       </header>
       <OwnerSwitch />
-      {total > 0 && <p className="note">“Add to cart” opens the item in the store. Add it there, come back, and it's ticked off here.</p>}
+      {count > 0 && <p className="note">“Add to cart” opens the item in the store. Add it there, come back, and it's ticked off here.</p>}
       <ErrorNote msg={error || err} />
 
-      {total === 0 && (
+      {count === 0 && (
         <Empty title="You're stocked up">
           <div className="hint">Items show up here a week before they need ordering, grouped by store.</div>
           <Link to="/stock" className="btn ghost" style={{ alignSelf: 'flex-start' }}>See stock</Link>
@@ -102,7 +147,7 @@ export default function Shop() {
                   <div className="row-title">{g.vet ? 'Requested' : 'Order placed'} {fmtShort(mineRows[0].it.ordered_at!.slice(0, 10))}</div>
                   <div className="row-sub">When it arrives, tap “{g.vet ? 'Refilled' : 'New pack opened'}” in Stock.</div>
                 </div>
-                <button className="link-btn" onClick={() => update(mineRows.map((r) => r.it.id), { ordered_at: null })}>Undo</button>
+                <button className="link-btn" onClick={() => void undoOrder(mineRows)}>Undo</button>
               </div>
             ) : (
               <>
@@ -164,12 +209,39 @@ export default function Shop() {
                     {!g.vet && g.store?.cart_url && (
                       <a href={g.store.cart_url} target="_blank" rel="noopener" className="btn ghost" style={{ flex: 1 }}>Open cart<IconExternal size={14} /></a>
                     )}
-                    {mineRows.length > 0 && (
-                      <button className="btn dark" style={{ flex: 1 }} onClick={() => update(mineRows.map((r) => r.it.id), { ordered_at: new Date().toISOString(), in_cart: true })}>
+                    {mineRows.length > 0 && logging !== g.key && (
+                      <button className="btn dark" style={{ flex: 1 }} onClick={() => startOrder(g, mineRows)}>
                         {g.vet ? 'Mark as requested' : 'I placed the order'}
                       </button>
                     )}
                   </div>
+                  {logging === g.key && (
+                    <div className="stack-sm" style={{ padding: 12, borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
+                      <div className="label-row"><span className="label">{g.vet ? 'What did it cost?' : 'What did you order?'}</span>
+                        <InfoTip label="About logging the order">This goes into Costs, split by pet. Set how many of each you ordered; change the total if it included shipping or a discount, and the difference is logged as its own line.</InfoTip>
+                      </div>
+                      {mineRows.map((r) => (
+                        <div key={r.it.id} className="row" style={{ gap: 8 }}>
+                          <div className="grow small"><div style={{ fontWeight: 600 }}>{r.it.name}</div>
+                            <div className="muted">{r.it.price != null ? euro(Number(r.it.price) * (qty[r.it.id] ?? 1)) : 'no price saved'}</div></div>
+                          <div className="stepper">
+                            <button type="button" aria-label={`Fewer ${r.it.name}`} onClick={() => { const q = { ...qty, [r.it.id]: Math.max(0, (qty[r.it.id] ?? 1) - 1) }; setQty(q); setTotal(String(lineSum(mineRows, q))) }}>−</button>
+                            <span style={{ minWidth: 32 }}>{qty[r.it.id] ?? 1}</span>
+                            <button type="button" aria-label={`More ${r.it.name}`} onClick={() => { const q = { ...qty, [r.it.id]: Math.min(50, (qty[r.it.id] ?? 1) + 1) }; setQty(q); setTotal(String(lineSum(mineRows, q))) }}>+</button>
+                          </div>
+                        </div>
+                      ))}
+                      <div className="row" style={{ gap: 8 }}>
+                        <label htmlFor={`tot-${g.key}`} className="grow" style={{ fontSize: 14, fontWeight: 600 }}>Order total (€)</label>
+                        <input id={`tot-${g.key}`} className="input num" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} />
+                      </div>
+                      <div className="row" style={{ gap: 8 }}>
+                        <button className="btn dark" style={{ flex: 1 }} disabled={busy === g.key} onClick={() => void placeOrder(g, mineRows, true)}>Save order</button>
+                        <button className="btn ghost" style={{ flex: 1 }} disabled={busy === g.key} onClick={() => void placeOrder(g, mineRows, false)}>Don't log cost</button>
+                      </div>
+                      <button className="link-btn" style={{ alignSelf: 'flex-start', minHeight: 32, padding: 0 }} onClick={() => setLogging(null)}>Cancel</button>
+                    </div>
+                  )}
                 </div>
               </>
             )}

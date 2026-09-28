@@ -209,12 +209,12 @@ textarea.input { padding: 10px 12px; min-height: 80px; resize: vertical; }
 /* layout safety: never let a field push past its card */
 .field, .grid2 > *, .row > .grow, .card-row > .grow { min-width: 0; }
 .input { max-width: 100%; min-width: 0; display: block; }
-input[type="date"].input, input[type="time"].input {
+input[type="date"].input, input[type="time"].input, input[type="datetime-local"].input {
   -webkit-appearance: none; appearance: none;
   min-width: 0; width: 100%; max-width: 100%;
   line-height: 44px; padding-top: 0; padding-bottom: 0; text-align: left;
 }
-input[type="date"].input::-webkit-date-and-time-value, input[type="time"].input::-webkit-date-and-time-value { text-align: left; margin: 0; }
+input[type="date"].input::-webkit-date-and-time-value, input[type="time"].input::-webkit-date-and-time-value, input[type="datetime-local"].input::-webkit-date-and-time-value { text-align: left; margin: 0; }
 input[type="date"].input::-webkit-calendar-picker-indicator { margin-left: auto; }
 .file-pick { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 14px; border-radius: 12px; border: 1.5px dashed var(--dash); background: var(--surface); cursor: pointer; }
 .file-pick .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -234,3 +234,16 @@ input[type="date"].input::-webkit-calendar-picker-indicator { margin-left: auto;
 .wk.auto { background: var(--accent-soft-2); color: var(--accent); }
 .week button { border: 0; background: transparent; padding: 4px 0; display: flex; flex-direction: column; align-items: center; gap: 5px; width: 40px; font-size: 11px; font-weight: 600; color: var(--muted); border-radius: 10px; }
 .week button[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); outline: 1px solid var(--line); }
+
+/* five-way segmented control (pet sections) */
+.seg.tight button { font-size: 13px; padding: 0 2px; }
+textarea.input { line-height: 1.45; }
+/* costs: simple horizontal bars */
+.hbar { height: 10px; border-radius: 5px; background: var(--track); overflow: hidden; }
+.hbar > div { height: 100%; border-radius: 5px; background: var(--accent); }
+.mbars { display: flex; align-items: flex-end; gap: 6px; height: 120px; padding-top: 8px; }
+.mbars > div { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; min-width: 0; }
+.mbars .col { width: 100%; max-width: 26px; border-radius: 4px 4px 0 0; background: var(--accent); min-height: 2px; }
+.mbars .col.now { background: var(--accent-ink); }
+.mbars .col.zero { background: var(--track); }
+.mbars span { font-size: 11px; color: var(--muted); font-weight: 600; }

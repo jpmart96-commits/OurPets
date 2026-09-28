@@ -3,6 +3,8 @@
 //  • a morning summary at the user's chosen time: weekly/monthly meds due today, stock to reorder,
 //    appointments today/tomorrow, vaccinations due within a week or overdue
 //  • appointments 2 hours before
+//  • an open can past its use-by time (food by units with "opened keeps N hours"), between 08:00 and 22:00
+//  • expiry dates in the morning summary (expired, or within a week)
 // Also: POST {test:true} with a user's JWT sends a test notification to that user's devices.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import webpush from 'npm:web-push@3.6.7'
@@ -116,7 +118,17 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 3. morning summary
+    // 3. open can past its use-by (only in the daytime, and only if it went off in the last day)
+    if (p.notify_stock && minutes >= 8 * 60 && minutes < 22 * 60) {
+      for (const it of myItems) {
+        const info = itemInfo(it, now)
+        if (!info.pastUseBy || !info.useBy || now.getTime() - info.useBy.getTime() > 86400e3) continue
+        const one = it.unit_label ?? 'can'
+        msgs.push({ key: `useby:${it.id}:${info.useBy.toISOString()}`, tag: `useby-${it.id}`, url: './#/', title: `${it.name}`, body: `The open ${one} has been open longer than ${it.open_life_hours} h. Throw out what's left and open a new one.` })
+      }
+    }
+
+    // 4. morning summary
     const summaryAt = toMin((p.morning_summary || '08:00').slice(0, 5))
     if (inWindow(summaryAt, minutes)) {
       const lines: string[] = []
@@ -133,6 +145,11 @@ Deno.serve(async (req) => {
           const { it, info } = low[0]
           lines.push(`Order ${it.name}${info.daysLeft != null ? ` (${info.daysLeft} days left)` : ' (running low)'}`)
         } else if (low.length > 1) lines.push(`${low.length} items to order: ${low.slice(0, 3).map(({ it }) => it.name).join(', ')}${low.length > 3 ? '…' : ''}`)
+        for (const it of myItems) {
+          const n = itemInfo(it, now).expiresIn
+          if (n == null || n > 7) continue
+          lines.push(n < 0 ? `${it.name} has expired` : n === 0 ? `${it.name} expires today` : `${it.name} expires in ${n} day${n === 1 ? '' : 's'}`)
+        }
       }
       if (p.notify_appointments) {
         for (const a of (appts.data ?? []) as Appointment[]) {

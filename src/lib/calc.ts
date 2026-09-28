@@ -1,4 +1,4 @@
-import type { MedForm, StockItem, UnitLabel } from './types'
+import type { Frequency, MedChange, MedForm, StockItem, UnitLabel } from './types'
 import { addDays, daysBetween, parseISO, toISO, todayISO } from './dates'
 
 export const UNIT_PLURAL: Record<MedForm, string> = {
@@ -272,6 +272,14 @@ export interface ItemInfo {
   kgNow: number | null
   /** food tracked by units only */
   units: UnitState | null
+  /** days until the box/pack in use expires (negative: already expired) */
+  expiresIn: number | null
+  /** it expires before it would run out */
+  expiresFirst: boolean
+  /** food by units: when the open can should be used by */
+  useBy: Date | null
+  /** food by units: the open can is past its use-by time */
+  pastUseBy: boolean
 }
 
 export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
@@ -319,7 +327,16 @@ export function itemInfo(item: StockItem, now = new Date()): ItemInfo {
   if (!active) daysLeft = null
 
   const orderIn = daysLeft != null ? daysLeft - (item.lead_days ?? 0) : null
+  const expiresIn = active && item.expires_on ? daysBetween(today, item.expires_on) : null
+  const expiresFirst = expiresIn != null && daysLeft != null && expiresIn < daysLeft
+  const life = Number(item.open_life_hours ?? 0)
+  const useBy = active && units?.openedAt && life > 0 && units.unopened + (units.currentLeft ?? 0) > 0
+    ? new Date(units.openedAt.getTime() + life * 3600e3) : null
   return {
+    expiresIn,
+    expiresFirst,
+    useBy,
+    pastUseBy: !!useBy && now > useBy,
     daysLeft,
     packDays,
     pct: daysLeft != null && packDays ? Math.max(3, Math.min(100, Math.round((daysLeft / packDays) * 100))) : null,
@@ -359,4 +376,54 @@ export function daysText(n: number): string {
 export function euro(n: number | null | undefined): string {
   if (n == null) return ''
   return '€' + Number(n).toFixed(2)
+}
+
+// ───────────── Expiry ─────────────
+
+/** Show an expiry line when it's within 60 days, expired, or before the item runs out. */
+export function showExpiry(info: ItemInfo): boolean {
+  return info.expiresIn != null && (info.expiresIn <= 60 || info.expiresFirst)
+}
+
+/** Needs attention: expired, within 14 days, or expires before it runs out. */
+export function expiryWarn(info: ItemInfo): boolean {
+  return info.expiresIn != null && (info.expiresIn <= 14 || info.expiresFirst)
+}
+
+export function expiryText(info: ItemInfo, expiresOn: string | null): string {
+  const n = info.expiresIn
+  if (n == null || !expiresOn) return ''
+  if (n < 0) return `Expired ${-n === 1 ? 'yesterday' : `${-n} days ago`}`
+  if (n === 0) return 'Expires today'
+  if (n === 1) return 'Expires tomorrow'
+  const base = n <= 60 ? `Expires in ${n} days` : `Expires ${expiresOn.slice(8, 10)}/${expiresOn.slice(5, 7)}/${expiresOn.slice(0, 4)}`
+  return info.expiresFirst && info.daysLeft != null ? `${base}, before it runs out` : base
+}
+
+// ───────────── Medication change history ─────────────
+
+const FREQ_WORD: Record<Frequency, string> = { daily: 'daily', weekly: 'weekly', monthly: 'monthly', as_needed: 'as needed' }
+
+function scheduleWords(freq: Frequency | null, times: string[] | null): string {
+  if (!freq) return ''
+  if (freq === 'daily') {
+    const t = [...(times ?? [])].sort()
+    return t.length > 1 ? `${t.length}× a day (${t.join(', ')})` : `daily${t[0] ? ` at ${t[0]}` : ''}`
+  }
+  return FREQ_WORD[freq]
+}
+
+/** "Started: 1 tablet, daily at 08:00" · "Dose ½ → 1 tablet" · "Paused" · "2× a day → daily at 08:00" */
+export function medChangeText(c: MedChange, form: MedForm | null): string {
+  const f = { form } as Pick<StockItem, 'form'>
+  const doseTxt = (d: number | null) => `${fmtNum(Number(d ?? 0))} ${unitFor(f, Number(d ?? 0))}`
+  if (c.kind === 'start') return `Started: ${doseTxt(c.dose)}, ${scheduleWords(c.frequency, c.dose_times)}`.replace(/, $/, '')
+  const parts: string[] = []
+  if (c.status !== c.prev_status) {
+    parts.push(c.status === 'paused' ? 'Paused' : c.status === 'finished' ? 'Finished' : c.prev_status ? 'Back to active' : 'Active')
+  }
+  if (Number(c.dose ?? 0) !== Number(c.prev_dose ?? 0)) parts.push(`Dose ${fmtNum(Number(c.prev_dose ?? 0))} → ${doseTxt(c.dose)}`)
+  const s0 = scheduleWords(c.prev_frequency, c.prev_dose_times), s1 = scheduleWords(c.frequency, c.dose_times)
+  if (s0 !== s1) parts.push(`${s0 || '—'} → ${s1}`)
+  return parts.join(' · ') || 'Updated'
 }

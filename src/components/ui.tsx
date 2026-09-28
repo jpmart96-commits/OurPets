@@ -53,14 +53,15 @@ export function BackLink({ to, label }: { to?: string; label: string }) {
   )
 }
 
-export function Segmented<T extends string>({ options, value, onChange, label }: {
+export function Segmented<T extends string>({ options, value, onChange, label, tight }: {
   options: { id: T; label: string }[]
   value: T
   onChange: (v: T) => void
   label: string
+  tight?: boolean
 }) {
   return (
-    <div className="seg" role="group" aria-label={label}>
+    <div className={'seg' + (tight ? ' tight' : '')} role="group" aria-label={label}>
       {options.map((o) => (
         <button key={o.id} aria-pressed={value === o.id} className={value === o.id ? 'on' : ''} onClick={() => onChange(o.id)} type="button">
           {o.label}

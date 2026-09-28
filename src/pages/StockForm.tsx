@@ -8,6 +8,7 @@ import type { Frequency, ItemStatus, ItemType, MedForm, StockItem, TrackBy, Unit
 import { removePhoto, signPhotos, uploadPhoto } from '../lib/photos'
 import { looksLikeUrl, lookupProduct, type LookupResult, type LookupVariant } from '../lib/lookup'
 import { Chips, ErrorNote, FieldLabel, InfoTip, PhotoPicker, Segmented, useGoBack } from '../components/ui'
+import { ItemPurchases } from '../components/ItemPurchases'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DEFAULT_TIMES = ['08:00', '20:00', '14:00', '23:00']
@@ -72,6 +73,10 @@ export default function StockForm() {
   const [onHand, setOnHand] = useState('')
   const [onHandInitial, setOnHandInitial] = useState('')
   const [alertAt, setAlertAt] = useState('2')
+  const [reason, setReason] = useState('')
+  // expiry
+  const [expiresOn, setExpiresOn] = useState('')
+  const [openLife, setOpenLife] = useState('')
 
   const [photo, setPhoto] = useState<File | null>(null)
   const [dropPhoto, setDropPhoto] = useState(false)
@@ -113,6 +118,7 @@ export default function StockForm() {
     setBoxSize(e.box_size != null ? String(e.box_size) : '')
     const now = e.type === 'med' ? String(itemInfo(e).countNow ?? '') : ''
     setOnHand(now); setOnHandInitial(now); setAlertAt(e.alert_at != null ? String(e.alert_at) : '2')
+    setExpiresOn(e.expires_on ?? ''); setOpenLife(e.open_life_hours != null ? String(e.open_life_hours) : '')
   }, [existing])
 
   // Recognise the store from the product link
@@ -141,6 +147,12 @@ export default function StockForm() {
   const uOne = unitWord(unitLabel, 1), uMany = unitWord(unitLabel, 2)
   const uManyCap = uMany[0].toUpperCase() + uMany.slice(1)
   const learned = existing && existing.track_by === 'units' ? unitRateSuggestion(existing) : null
+  const numOf = (s: string) => { const v = parseFloat(s.replace(',', '.')); return Number.isFinite(v) ? v : null }
+  const medChanged = !!existing && isMed && (
+    existing.status !== status || existing.frequency !== freq || Number(existing.dose) !== (numOf(dose) ?? 1)
+    || (existing.dose_times ?? []).slice().sort().join() !== (freq === 'daily' ? [...times].sort().join() : ''))
+  const lifeH = numOf(openLife) ?? 0
+  const unitDaysN = numOf(unitDays) ?? 0
 
   const summary = useMemo(() => {
     const where = source === 'vet' ? 'vet' : stores.find((s) => s.id === storeId)?.name ?? 'shopping'
@@ -313,6 +325,7 @@ export default function StockForm() {
         form, dose: num(dose) ?? 1, frequency: freq, dose_times: freq === 'daily' ? [...times].sort() : null,
         start_date: startDate || todayISO(), box_size: num(boxSize), alert_at: num(alertAt) ?? 2
       })
+      if (medChanged && reason.trim()) row.change_reason = reason.trim().slice(0, 300)
       const statusChanged = existing && existing.status !== status
       const scheduleChanged = existing && (existing.frequency !== freq || String(existing.dose) !== String(num(dose)) || (existing.dose_times ?? []).join() !== (freq === 'daily' ? [...times].sort().join() : ''))
       if (!existing || onHand !== onHandInitial || statusChanged || scheduleChanged) {
@@ -320,6 +333,8 @@ export default function StockForm() {
         row.counted_at = new Date().toISOString()
       }
     }
+    row.expires_on = expiresOn || null
+    row.open_life_hours = isFood && trackBy === 'units' && lifeH > 0 ? Math.round(lifeH) : null
     setBusy(true)
     let photo_path = existing?.photo_path ?? null
     try {
@@ -483,6 +498,12 @@ export default function StockForm() {
               <Segmented<ItemStatus> label="Status" value={status} onChange={setStatus}
                 options={[{ id: 'active', label: 'Active' }, { id: 'paused', label: 'Paused' }, { id: 'finished', label: 'Finished' }]} />
             </div>
+            {medChanged && (
+              <div className="field" style={{ padding: 12, borderRadius: 12, background: 'var(--accent-soft)' }}>
+                <FieldLabel htmlFor="sr" tip={<>Dose, schedule and status changes are saved in the pet's medication history and Timeline, with the date. A short reason helps later, for example at the next vet visit.<br />The pill count is kept: the app starts counting down at the new dose from now.</>}>Why the change? <span className="muted" style={{ fontWeight: 500 }}>(optional)</span></FieldLabel>
+                <input id="sr" className="input" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Vet: kidney values better, lower dose" />
+              </div>
+            )}
             <div className="field">
               <FieldLabel as="span" tip="Prescription meds come from the vet. In the Shop tab they get “Ask vet” instead of an add-to-cart button.">Buy from</FieldLabel>
               <Segmented<'store' | 'vet'> label="Buy from" value={source} onChange={setSource}
@@ -555,6 +576,20 @@ export default function StockForm() {
                 <input id="suo" className="input" type="date" value={curOpened} max={todayISO()} onChange={(e) => setCurOpened(e.target.value)} />
               </div>
             </div>
+            <div className="field">
+              <FieldLabel htmlFor="sol" tip={<>How long an opened {uOne} keeps in the fridge; the label usually says (often 24–48 hours). The app shows a use-by time for the open {uOne} and warns you when it's past it.<br />Leave empty if you don't want this.</>}>Opened {uOne} keeps (hours)</FieldLabel>
+              <div className="row" style={{ gap: 8 }}>
+                <input id="sol" className="input num" inputMode="numeric" value={openLife} onChange={(e) => setOpenLife(e.target.value)} placeholder="—" />
+                <div className="chips" role="group" aria-label="Quick picks">
+                  {[24, 48, 72].map((h) => (
+                    <button key={h} type="button" className={'chip' + (lifeH === h ? ' on' : '')} aria-pressed={lifeH === h} onClick={() => setOpenLife(lifeH === h ? '' : String(h))}>{h} h</button>
+                  ))}
+                </div>
+              </div>
+              {lifeH > 0 && unitDaysN * 24 > lifeH && (
+                <div className="hint warn-text">One {uOne} lasts {fmtNum(unitDaysN)} days but keeps {lifeH} hours once open, so part of each {uOne} may go off. Smaller {uMany} would waste less.</div>
+              )}
+            </div>
           </>
         )}
 
@@ -606,6 +641,14 @@ export default function StockForm() {
           </div>
         )}
 
+        <div className="field">
+          <FieldLabel htmlFor="sx" tip={<>The expiry or best-before date on the {isMed ? 'box' : 'pack'} you're using now. It shows on Stock and Today when it's close (and in the morning summary), or when it would expire before you finish it.<br />When a new {isMed ? 'box' : 'pack'} arrives, update the date.</>}>Expires on <span className="muted" style={{ fontWeight: 500 }}>(optional)</span></FieldLabel>
+          <div className="row" style={{ gap: 8 }}>
+            <input id="sx" className="input" type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} />
+            {expiresOn && <button type="button" className="btn ghost small" style={{ minHeight: 46, flexShrink: 0 }} onClick={() => setExpiresOn('')}>Clear</button>}
+          </div>
+        </div>
+
         <div className="row between">
           <div>
             <div className="label-row"><span className="label">Remind me before it runs out</span>
@@ -624,6 +667,8 @@ export default function StockForm() {
           <div className="big">{summary.big}</div>
           <div className="txt">{summary.txt}</div>
         </section>
+
+        {existing && household && <ItemPurchases item={existing} householdId={household.id} />}
 
         <ErrorNote msg={error} />
         <button className="btn block" type="submit" disabled={busy}>{existing ? 'Save changes' : 'Add to stock'}</button>
