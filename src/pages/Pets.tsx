@@ -9,7 +9,7 @@ import { IconChevron, IconPlus } from '../components/icons'
 const SPECIES: Record<string, string> = { dog: 'Dog', cat: 'Cat', other: 'Pet' }
 
 export default function Pets() {
-  const { pets, userId, shared, othersLabel, items, appointments, error } = useApp()
+  const { pets, userId, shared, othersLabel, items, appointments, error, photoUrl } = useApp()
   const mine = pets.filter((p) => p.owner_id === userId)
   const theirs = shared ? pets.filter((p) => p.owner_id !== userId) : []
 
@@ -35,7 +35,7 @@ export default function Pets() {
     const meta = [SPECIES[p.species], p.breed, ageText(p.birth_date)].filter(Boolean).join(' · ')
     return (
       <Link key={p.id} to={`/pets/${p.id}`} className="card pad row" style={{ textDecoration: 'none', color: 'inherit', gap: 14 }}>
-        <Avatar name={p.name} owner={owner} />
+        <Avatar name={p.name} owner={owner} src={photoUrl(p.photo_path)} />
         <div className="grow">
           <div style={{ fontSize: 17, fontWeight: 700 }}>{p.name}</div>
           <div className="row-sub">{meta}</div>

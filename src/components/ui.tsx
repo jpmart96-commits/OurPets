@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import type { ReactNode } from 'react'
-import { IconBack, IconBox, IconBowl, IconCart, IconHome, IconPaw, IconPill } from './icons'
+import { useEffect, useId, useState, type ReactNode } from 'react'
+import { IconBack, IconBox, IconBowl, IconCamera, IconCart, IconHome, IconPaw, IconPill } from './icons'
 import { useApp, type OwnerFilter } from '../lib/store'
 import type { ItemType } from '../lib/types'
 
@@ -114,10 +114,53 @@ export function TypeIcon({ type, size = 20 }: { type: ItemType; size?: number })
   return <IconBox size={size} />
 }
 
-export function Avatar({ name, species, size = 52, owner = 'me' }: { name: string; species?: string; size?: number; owner?: 'me' | 'other' }) {
+export function Avatar({ name, species, size = 52, owner = 'me', src }: { name: string; species?: string; size?: number; owner?: 'me' | 'other'; src?: string }) {
   return (
     <div className={'avatar ' + (owner === 'me' ? 'mine' : 'theirs')} style={{ width: size, height: size, fontSize: size * 0.42 }} title={species}>
-      {name.slice(0, 1).toUpperCase()}
+      {src ? <img src={src} alt="" /> : name.slice(0, 1).toUpperCase()}
+    </div>
+  )
+}
+
+/** Square thumbnail for stock items: photo when there is one, otherwise the type icon. */
+export function ItemThumb({ type, src, size = 36 }: { type: ItemType; src?: string; size?: number }) {
+  return (
+    <div className="icon-tile" style={{ width: size, height: size, overflow: 'hidden' }}>
+      {src ? <img src={src} alt="" className="thumb-img" /> : <TypeIcon type={type} size={Math.round(size * 0.55)} />}
+    </div>
+  )
+}
+
+/** Photo chooser: tap to take/choose a photo. Shows the picked file or the current photo. */
+export function PhotoPicker({ current, file, onFile, onRemove, round = true, label = 'Photo', fallback }: {
+  current?: string
+  file: File | null
+  onFile: (f: File | null) => void
+  onRemove?: () => void
+  round?: boolean
+  label?: string
+  fallback?: ReactNode
+}) {
+  const [preview, setPreview] = useState<string | undefined>()
+  useEffect(() => {
+    if (!file) { setPreview(undefined); return }
+    const u = URL.createObjectURL(file)
+    setPreview(u)
+    return () => URL.revokeObjectURL(u)
+  }, [file])
+  const shown = preview ?? current
+  const id = useId()
+  return (
+    <div className="photo-picker">
+      <label htmlFor={id} className={'photo-circle' + (round ? '' : ' square')} aria-label={shown ? `Change ${label.toLowerCase()}` : `Add ${label.toLowerCase()}`}>
+        {shown ? <img src={shown} alt="" /> : (fallback ?? <IconCamera size={26} />)}
+        <span className="photo-badge" aria-hidden="true"><IconCamera size={14} /></span>
+      </label>
+      <input id={id} type="file" accept="image/*" className="visually-hidden" onChange={(e) => { onFile(e.target.files?.[0] ?? null); e.target.value = '' }} />
+      <div className="stack-sm" style={{ gap: 4 }}>
+        <label htmlFor={id} className="link-btn" style={{ padding: 0, minHeight: 32, cursor: 'pointer' }}>{shown ? 'Change photo' : 'Add photo'}</label>
+        {shown && onRemove && <button type="button" className="link-btn" style={{ padding: 0, minHeight: 32, color: 'var(--muted-2)', textAlign: 'left' }} onClick={onRemove}>Remove</button>}
+      </div>
     </div>
   )
 }

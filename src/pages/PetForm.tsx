@@ -3,11 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import type { Species } from '../lib/types'
-import { Chips, ErrorNote, Segmented } from '../components/ui'
+import { removePhoto, uploadPhoto } from '../lib/photos'
+import { Chips, ErrorNote, PhotoPicker, Segmented } from '../components/ui'
 
 export default function PetForm() {
   const { id } = useParams()
-  const { petById, household, userId, reload } = useApp()
+  const { petById, household, userId, reload, photoUrl } = useApp()
   const nav = useNavigate()
   const existing = id ? petById(id) : undefined
 
@@ -20,6 +21,8 @@ export default function PetForm() {
   const [chip, setChip] = useState('')
   const [vet, setVet] = useState('')
   const [notes, setNotes] = useState('')
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [dropPhoto, setDropPhoto] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -38,7 +41,13 @@ export default function PetForm() {
     e?.preventDefault()
     if (!name.trim()) { setError('Give your pet a name.'); return }
     setBusy(true); setError(null)
+    let photo_path = existing?.photo_path ?? null
+    try {
+      if (photo && household) photo_path = await uploadPhoto(household.id, 'pets', photo)
+      else if (dropPhoto) photo_path = null
+    } catch (e) { setBusy(false); setError('Photo upload failed: ' + errMsg(e)); return }
     const row = {
+      photo_path,
       name: name.trim(), species, breed: breed.trim() || null, sex: sex || null,
       neutered: neutered === '' ? null : neutered === 'yes', birth_date: birth || null,
       microchip: chip.trim() || null, vet_name: vet.trim() || null, notes: notes.trim() || null
@@ -48,6 +57,7 @@ export default function PetForm() {
       : await supabase.from('pets').insert({ ...row, household_id: household?.id, owner_id: userId }).select('id').single()
     setBusy(false)
     if (res.error) { setError(errMsg(res.error)); return }
+    if (existing?.photo_path && existing.photo_path !== photo_path) void removePhoto(existing.photo_path)
     await reload()
     nav(`/pets/${res.data.id}`, { replace: true })
   }
@@ -72,6 +82,10 @@ export default function PetForm() {
           <button type="submit" className="strong" disabled={busy}>Save</button>
         </div>
 
+        <PhotoPicker label="Pet photo" file={photo} current={dropPhoto ? undefined : photoUrl(existing?.photo_path)}
+          onFile={(f) => { setPhoto(f); setDropPhoto(false) }} onRemove={() => { setPhoto(null); setDropPhoto(true) }}
+          fallback={name ? name.slice(0, 1).toUpperCase() : undefined} />
+
         <div className="field">
           <label htmlFor="pn">Name</label>
           <input id="pn" className="input" value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} />
@@ -85,15 +99,13 @@ export default function PetForm() {
           <label htmlFor="pb">Breed <span className="muted" style={{ fontWeight: 500 }}>(optional)</span></label>
           <input id="pb" className="input" value={breed} onChange={(e) => setBreed(e.target.value)} />
         </div>
-        <div className="grid2" style={{ gap: 12 }}>
-          <div className="field">
-            <label htmlFor="pd">Birth date</label>
-            <input id="pd" className="input" type="date" value={birth} onChange={(e) => setBirth(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="pm">Microchip</label>
-            <input id="pm" className="input" inputMode="numeric" value={chip} onChange={(e) => setChip(e.target.value)} />
-          </div>
+        <div className="field">
+          <label htmlFor="pd">Birth date</label>
+          <input id="pd" className="input" type="date" value={birth} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setBirth(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="pm">Microchip number</label>
+          <input id="pm" className="input" inputMode="numeric" value={chip} onChange={(e) => setChip(e.target.value)} />
         </div>
         <div className="field">
           <span className="label">Sex</span>

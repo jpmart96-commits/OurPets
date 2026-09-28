@@ -6,7 +6,7 @@ import { fmtShort } from '../lib/dates'
 import { daysText, fmtNum, foodGramsPerDay, itemInfo, scheduleText, unitFor } from '../lib/calc'
 import { refill } from '../lib/actions'
 import type { ItemType, StockItem } from '../lib/types'
-import { Bar, Chips, Empty, ErrorNote, OwnerSwitch, Screen, TypeIcon } from '../components/ui'
+import { Bar, Chips, Empty, ErrorNote, ItemThumb, OwnerSwitch, Screen } from '../components/ui'
 import { IconCart, IconChevron, IconPlus } from '../components/icons'
 
 type TypeFilter = 'all' | ItemType
@@ -90,7 +90,7 @@ export default function Stock() {
         return (
           <article key={it.id} className="card pad stack" style={{ gap: 10 }}>
             <Link to={`/stock/${it.id}`} className="row" style={{ alignItems: 'flex-start', textDecoration: 'none', color: 'inherit' }}>
-              <div className="icon-tile"><TypeIcon type={it.type} /></div>
+              <ItemThumb type={it.type} src={app.photoUrl(it.photo_path)} size={it.photo_path ? 52 : 36} />
               <div className="grow"><h2 className="h">{it.name}</h2><div className="row-sub">{detail(it)}</div></div>
               {storeName(it) && <span className="badge">{storeName(it)}</span>}
             </Link>

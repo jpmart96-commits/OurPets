@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
+import { signPhotos } from './photos'
 import { addDays, todayISO } from './dates'
 import type { Appointment, DoseLog, Household, Member, Pet, Profile, StockItem, Store } from './types'
 
@@ -16,10 +17,11 @@ interface Data {
   items: StockItem[]
   logs: DoseLog[]
   appointments: Appointment[]
+  photos: Record<string, string>
 }
 
 const empty: Data = {
-  profile: null, household: null, members: [], profiles: [], pets: [], stores: [], items: [], logs: [], appointments: []
+  profile: null, household: null, members: [], profiles: [], pets: [], stores: [], items: [], logs: [], appointments: [], photos: {}
 }
 
 interface Ctx extends Data {
@@ -36,6 +38,7 @@ interface Ctx extends Data {
   nameOf: (userId: string) => string
   petById: (id: string) => Pet | undefined
   showOwner: (ownerId: string) => boolean
+  photoUrl: (path: string | null | undefined) => string | undefined
 }
 
 const AppCtx = createContext<Ctx | null>(null)
@@ -78,14 +81,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const firstErr = [pr, hm, hh, pets, stores, items, logs, appts].find((r) => r.error)?.error
       if (firstErr) throw firstErr
       const profiles = (pr.data ?? []) as Profile[]
+      const petRows = (pets.data ?? []) as Pet[]
+      const itemRows = (items.data ?? []) as StockItem[]
+      const photos = await signPhotos([
+        ...petRows.map((p) => p.photo_path ?? ''),
+        ...profiles.map((p) => p.avatar_path ?? ''),
+        ...itemRows.map((i) => i.photo_path ?? '')
+      ])
       setData({
+        photos,
         profile: profiles.find((p) => p.id === userId) ?? null,
         profiles,
         members: (hm.data ?? []) as Member[],
         household: ((hh.data ?? [])[0] ?? null) as Household | null,
-        pets: (pets.data ?? []) as Pet[],
+        pets: petRows,
         stores: (stores.data ?? []) as Store[],
-        items: (items.data ?? []) as StockItem[],
+        items: itemRows,
         logs: (logs.data ?? []) as DoseLog[],
         appointments: (appts.data ?? []) as Appointment[]
       })
@@ -112,7 +123,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       othersLabel,
       nameOf: (id: string) => data.profiles.find((p) => p.id === id)?.display_name || 'Someone',
       petById: (id: string) => data.pets.find((p) => p.id === id),
-      showOwner: (ownerId: string) => f === 'all' || (f === 'mine' ? ownerId === userId : ownerId !== userId)
+      showOwner: (ownerId: string) => f === 'all' || (f === 'mine' ? ownerId === userId : ownerId !== userId),
+      photoUrl: (path) => (path ? data.photos[path] : undefined)
     }
   }, [data, session, authReady, loading, error, userId, reload, filter])
 

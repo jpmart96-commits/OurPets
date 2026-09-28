@@ -6,7 +6,7 @@ import { addDays, ageText, fmtDate, fmtDateTime, fmtShort, parseISO, todayISO } 
 import { daysText, fmtNum, isDueOn, itemInfo, medStart, medTimes, scheduleText, unitFor } from '../lib/calc'
 import { logAsNeeded, refill } from '../lib/actions'
 import type { Appointment, DocumentRow, StockItem, Weight } from '../lib/types'
-import { Avatar, BackLink, Bar, ErrorNote, Loading, Screen, Segmented, TypeIcon } from '../components/ui'
+import { Avatar, BackLink, Bar, ErrorNote, ItemThumb, Loading, Screen, Segmented } from '../components/ui'
 import { IconCheck, IconDoc, IconPlus, IconTrash } from '../components/icons'
 import WeightChart from '../components/WeightChart'
 
@@ -16,7 +16,7 @@ const SPECIES: Record<string, string> = { dog: 'Dog', cat: 'Cat', other: 'Pet' }
 export default function PetDetail() {
   const { id = '' } = useParams()
   const app = useApp()
-  const { petById, userId, items, logs, shared, nameOf, reload } = app
+  const { petById, userId, items, logs, shared, nameOf, reload, photoUrl } = app
   const pet = petById(id)
   const mine = pet?.owner_id === userId
   const [tab, setTab] = useState<Tab>('overview')
@@ -65,7 +65,7 @@ export default function PetDetail() {
     <Screen>
       <BackLink to="/pets" label="Pets" />
       <header className="row" style={{ gap: 16 }}>
-        <Avatar name={pet.name} size={72} owner={mine ? 'me' : 'other'} />
+        <Avatar name={pet.name} size={72} owner={mine ? 'me' : 'other'} src={photoUrl(pet.photo_path)} />
         <div className="grow">
           <h1 className="title">{pet.name}</h1>
           <div className="sub" style={{ fontSize: 14 }}>{[SPECIES[pet.species], pet.breed, ageText(pet.birth_date)].filter(Boolean).join(' · ')}</div>
@@ -100,7 +100,7 @@ export default function PetDetail() {
                 const info = itemInfo(it)
                 return (
                   <Link key={it.id} to={`/stock/${it.id}`} className="card-row" style={{ textDecoration: 'none', color: 'inherit' }}>
-                    <div className="icon-tile"><TypeIcon type={it.type} /></div>
+                    <ItemThumb type={it.type} src={photoUrl(it.photo_path)} />
                     <div className="grow"><div className="row-title">{it.name}</div>
                       <div className="row-sub">{it.type === 'med' ? scheduleText(it) : it.type === 'food' ? `${fmtNum(it.stock_item_pets.find((p) => p.pet_id === pet.id)?.daily_grams ?? 0)} g/day` : ''}</div></div>
                     {info.daysLeft != null ? <span className={'badge ' + (info.urgent ? 'warn' : 'grey')}>{info.daysLeft} days</span>
@@ -282,10 +282,8 @@ function WeightTab({ petId, mine, weights, run, busy }: { petId: string; mine: b
 
       {mine && (
         <form className="card pad stack" onSubmit={add}>
-          <div className="grid2" style={{ gap: 12 }}>
-            <div className="field"><label htmlFor="wk">Weight (kg)</label><input id="wk" className="input" inputMode="decimal" value={kg} onChange={(e) => setKg(e.target.value)} placeholder="e.g. 28.4" required /></div>
-            <div className="field"><label htmlFor="wd">Date</label><input id="wd" className="input" type="date" value={date} max={todayISO()} onChange={(e) => setDate(e.target.value)} required /></div>
-          </div>
+          <div className="field"><label htmlFor="wk">Weight (kg)</label><input id="wk" className="input" inputMode="decimal" value={kg} onChange={(e) => setKg(e.target.value)} placeholder="e.g. 28.4" required /></div>
+          <div className="field"><label htmlFor="wd">Date</label><input id="wd" className="input" type="date" value={date} max={todayISO()} onChange={(e) => setDate(e.target.value)} required /></div>
           <button className="btn" type="submit" disabled={busy}>Log weight</button>
         </form>
       )}
@@ -362,18 +360,19 @@ function RecordsTab({ petId, mine, docs, run, busy, setError }: { petId: string;
       ))}
       {mine && (
         <form className="card pad stack" onSubmit={upload}>
-          <div className="field">
-            <label htmlFor="df">Exam or document</label>
-            <input id="df" className="input" style={{ paddingTop: 10 }} type="file" accept="application/pdf,image/*" onChange={(e) => {
-              const f = e.target.files?.[0] ?? null
-              setFile(f)
-              if (f && !title) setTitle(f.name.replace(/\.[^.]+$/, ''))
-            }} required />
-          </div>
-          <div className="grid2" style={{ gap: 12 }}>
-            <div className="field"><label htmlFor="dt">Title</label><input id="dt" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Blood panel" /></div>
-            <div className="field"><label htmlFor="dd">Date</label><input id="dd" className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
-          </div>
+          <h2 className="h">Add an exam or document</h2>
+          <label htmlFor="df" className="file-pick">
+            <span className="icon-tile"><IconDoc size={18} /></span>
+            <span className="grow">{file ? file.name : 'Choose a PDF or photo'}</span>
+            <span className="small" style={{ color: 'var(--accent)', fontWeight: 600 }}>{file ? 'Change' : 'Browse'}</span>
+          </label>
+          <input id="df" className="visually-hidden" type="file" accept="application/pdf,image/*" onChange={(e) => {
+            const f = e.target.files?.[0] ?? null
+            setFile(f)
+            if (f && !title) setTitle(f.name.replace(/\.[^.]+$/, ''))
+          }} />
+          <div className="field"><label htmlFor="dt">Title</label><input id="dt" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Blood panel" /></div>
+          <div className="field"><label htmlFor="dd">Date of the exam</label><input id="dd" className="input" type="date" value={date} max={todayISO()} onChange={(e) => setDate(e.target.value)} /></div>
           <button className="btn" type="submit" disabled={!file || uploading || busy}>{uploading ? 'Uploading…' : 'Upload'}</button>
           <div className="hint">PDF or photo, up to 20 MB. Only people in your household can open it.</div>
         </form>

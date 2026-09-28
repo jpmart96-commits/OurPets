@@ -5,7 +5,8 @@ import { supabase, errMsg } from '../lib/supabase'
 import { addDays, fmtShort, parseISO, todayISO } from '../lib/dates'
 import { UNIT_PLURAL, fmtNum, itemInfo, ordinal } from '../lib/calc'
 import type { Frequency, ItemStatus, ItemType, MedForm, StockItem } from '../lib/types'
-import { Chips, ErrorNote, Segmented } from '../components/ui'
+import { removePhoto, uploadPhoto } from '../lib/photos'
+import { Chips, ErrorNote, PhotoPicker, Segmented } from '../components/ui'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DEFAULT_TIMES = ['08:00', '20:00', '14:00', '23:00']
@@ -14,7 +15,7 @@ export default function StockForm() {
   const { id } = useParams()
   const [qs] = useSearchParams()
   const nav = useNavigate()
-  const { items, pets, stores, userId, household, reload, nameOf } = useApp()
+  const { items, pets, stores, userId, household, reload, nameOf, photoUrl } = useApp()
   const existing = id ? items.find((i) => i.id === id) : undefined
   const myPets = pets.filter((p) => p.owner_id === userId)
 
@@ -48,6 +49,8 @@ export default function StockForm() {
   const [onHandInitial, setOnHandInitial] = useState('')
   const [alertAt, setAlertAt] = useState('2')
 
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [dropPhoto, setDropPhoto] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -159,6 +162,12 @@ export default function StockForm() {
       }
     }
     setBusy(true)
+    let photo_path = existing?.photo_path ?? null
+    try {
+      if (photo && household) photo_path = await uploadPhoto(household.id, 'items', photo)
+      else if (dropPhoto) photo_path = null
+    } catch (e) { setBusy(false); setError('Photo upload failed: ' + errMsg(e)); return }
+    row.photo_path = photo_path
     const res = existing
       ? await supabase.from('stock_items').update(row).eq('id', existing.id).select('id').single()
       : await supabase.from('stock_items').insert({ ...row, household_id: household?.id, owner_id: userId }).select('id').single()
@@ -170,6 +179,7 @@ export default function StockForm() {
     )
     setBusy(false)
     if (ins.error) { setError(errMsg(ins.error)); return }
+    if (existing?.photo_path && existing.photo_path !== photo_path) void removePhoto(existing.photo_path)
     await reload()
     nav(-1)
   }
@@ -199,6 +209,9 @@ export default function StockForm() {
           <Segmented<ItemType> label="Item type" value={type} onChange={(t) => { setType(t); if (t === 'med' && petIds.length > 1) setPetIds(petIds.slice(0, 1)) }}
             options={[{ id: 'food', label: 'Food' }, { id: 'med', label: 'Medication' }, { id: 'supply', label: 'Supply' }]} />
         )}
+
+        <PhotoPicker label="Item photo" round={false} file={photo} current={dropPhoto ? undefined : photoUrl(existing?.photo_path)}
+          onFile={(f) => { setPhoto(f); setDropPhoto(false) }} onRemove={() => { setPhoto(null); setDropPhoto(true) }} />
 
         <div className="field">
           <label htmlFor="sn">Name</label>

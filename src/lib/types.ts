@@ -9,6 +9,7 @@ export interface Profile {
   display_name: string
   shares_home: boolean
   morning_summary: string
+  avatar_path: string | null
 }
 
 export interface Household {
@@ -36,6 +37,7 @@ export interface Pet {
   vet_name: string | null
   notes: string | null
   archived: boolean
+  photo_path: string | null
 }
 
 export interface Store {
@@ -80,6 +82,7 @@ export interface StockItem {
   in_cart: boolean
   ordered_at: string | null
   created_at: string
+  photo_path: string | null
   stock_item_pets: StockPet[]
 }
 

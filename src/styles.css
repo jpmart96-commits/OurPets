@@ -194,3 +194,27 @@ textarea.input { padding: 10px 12px; min-height: 80px; resize: vertical; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand-mark { width: 48px; height: 48px; border-radius: 14px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; }
 .link-btn { border: 0; background: transparent; color: var(--accent); font-weight: 600; padding: 8px 0; min-height: 44px; }
+
+/* photos */
+.avatar { overflow: hidden; }
+.avatar img, .thumb-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.photo-picker { display: flex; align-items: center; gap: 16px; }
+.photo-circle { position: relative; width: 88px; height: 88px; flex-shrink: 0; border-radius: 44px; background: var(--accent-soft-2); color: var(--accent); display: flex; align-items: center; justify-content: center; cursor: pointer; font-family: var(--display); font-size: 36px; font-weight: 600; }
+.photo-circle.square { border-radius: 18px; }
+.photo-circle img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.photo-badge { position: absolute; right: -2px; bottom: -2px; width: 30px; height: 30px; border-radius: 15px; background: var(--accent); color: #fff; border: 2px solid var(--bg); display: flex; align-items: center; justify-content: center; }
+.photo-picker input:focus-visible + div, .photo-circle:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* layout safety: never let a field push past its card */
+.field, .grid2 > *, .row > .grow, .card-row > .grow { min-width: 0; }
+.input { max-width: 100%; min-width: 0; display: block; }
+input[type="date"].input, input[type="time"].input {
+  -webkit-appearance: none; appearance: none;
+  min-width: 0; width: 100%; max-width: 100%;
+  line-height: 44px; padding-top: 0; padding-bottom: 0; text-align: left;
+}
+input[type="date"].input::-webkit-date-and-time-value, input[type="time"].input::-webkit-date-and-time-value { text-align: left; margin: 0; }
+input[type="date"].input::-webkit-calendar-picker-indicator { margin-left: auto; }
+.file-pick { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 14px; border-radius: 12px; border: 1.5px dashed var(--dash); background: var(--surface); cursor: pointer; }
+.file-pick .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

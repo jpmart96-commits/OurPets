@@ -4,7 +4,7 @@ import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import { addDays, daysBetween, fmtDateTime, fmtTime, fmtToday, greeting, relDay, todayISO } from '../lib/dates'
 import { fmtNum, isDueOn, itemInfo, medTimes, nextDue, unitFor } from '../lib/calc'
-import { Empty, ErrorNote, Loading, OwnerSwitch, Screen, TypeIcon } from '../components/ui'
+import { Avatar, Empty, ErrorNote, ItemThumb, Loading, OwnerSwitch, Screen } from '../components/ui'
 import { IconCalendar, IconCart, IconCheck, IconPill } from '../components/icons'
 
 export default function Today() {
@@ -88,7 +88,7 @@ export default function Today() {
             <h1 className="title" style={{ marginTop: 4 }}>{greeting()}{first ? `, ${first}` : ''}</h1>
           </div>
           <Link to="/profile" aria-label="Profile and household" className="avatar-link">
-            <div className="brand-mark" style={{ width: 44, height: 44, borderRadius: 22, fontWeight: 700 }}>{(first || '?').slice(0, 1).toUpperCase()}</div>
+            <Avatar name={first || '?'} size={44} src={app.photoUrl(profile?.avatar_path)} />
           </Link>
         </div>
         <OwnerSwitch />
@@ -135,7 +135,7 @@ export default function Today() {
           <div className="card-head"><h2 id="low-h">Running low</h2></div>
           {low.map(({ it, info }) => (
             <Link key={it.id} to={`/stock/${it.id}`} className="card-row" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <div className="icon-tile"><TypeIcon type={it.type} /></div>
+              <ItemThumb type={it.type} src={app.photoUrl(it.photo_path)} />
               <div className="grow">
                 <div className="row-title">{it.name}{it.type === 'med' && info.countNow != null ? ` · ${fmtNum(info.countNow)} left` : ''}</div>
                 <div className="row-sub">{petNames(it.stock_item_pets.map((p) => p.pet_id)) || '—'}{it.owner_id !== userId ? ` · ${nameOf(it.owner_id)}'s` : ''}</div>

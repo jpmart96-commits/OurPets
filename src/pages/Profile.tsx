@@ -4,10 +4,11 @@ import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import type { Store } from '../lib/types'
 import { Avatar, BackLink, ErrorNote, Screen, Toggle } from '../components/ui'
-import { IconPlus } from '../components/icons'
+import { IconCamera, IconPlus } from '../components/icons'
+import { removePhoto, uploadPhoto } from '../lib/photos'
 
 export default function Profile() {
-  const { profile, profiles, members, pets, stores, userId, household, session, reload, error, othersLabel } = useApp()
+  const { profile, profiles, members, pets, stores, userId, household, session, reload, error, othersLabel, photoUrl } = useApp()
   const nav = useNavigate()
   const [name, setName] = useState('')
   const [invite, setInvite] = useState<string | null>(null)
@@ -29,6 +30,23 @@ export default function Profile() {
     if (r.error) setErr(errMsg(r.error))
     await reload()
     setBusy(false)
+  }
+
+  async function setAvatar(f: File) {
+    if (!household || !userId) return
+    setBusy(true); setErr(null)
+    try {
+      const old = profile?.avatar_path
+      const path = await uploadPhoto(household.id, 'people', f)
+      const { error } = await supabase.from('profiles').update({ avatar_path: path }).eq('id', userId)
+      if (error) throw error
+      if (old) void removePhoto(old)
+      await reload()
+    } catch (e) {
+      setErr('Photo upload failed: ' + errMsg(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function makeInvite() {
@@ -58,7 +76,11 @@ export default function Profile() {
     <Screen>
       <BackLink to="/" label="Today" />
       <header className="row" style={{ gap: 14 }}>
-        <Avatar name={profile?.display_name || '?'} size={60} />
+        <label className="photo-circle" style={{ width: 64, height: 64, fontSize: 26 }} aria-label={profile?.avatar_path ? 'Change your photo' : 'Add your photo'}>
+          {photoUrl(profile?.avatar_path) ? <img src={photoUrl(profile?.avatar_path)} alt="" /> : (profile?.display_name || '?').slice(0, 1).toUpperCase()}
+          <span className="photo-badge" aria-hidden="true" style={{ width: 26, height: 26 }}><IconCamera size={12} /></span>
+          <input type="file" accept="image/*" className="visually-hidden" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void setAvatar(f) }} />
+        </label>
         <div className="grow">
           <h1 className="title" style={{ fontSize: 28 }}>{profile?.display_name || 'You'}</h1>
           <div className="sub" style={{ fontSize: 14 }}>{session?.user.email}</div>
@@ -87,14 +109,14 @@ export default function Profile() {
         {sharesHome && (
           <>
             <div className="card-row">
-              <Avatar name={profile?.display_name || '?'} size={36} />
+              <Avatar name={profile?.display_name || '?'} size={36} src={photoUrl(profile?.avatar_path)} />
               <div className="grow"><div className="row-title">{profile?.display_name} <span className="muted" style={{ fontWeight: 500 }}>(you)</span></div><div className="row-sub">{petsOf(userId!)}</div></div>
             </div>
             {others.map((m) => {
               const p = profiles.find((x) => x.id === m.user_id)
               return (
                 <div key={m.user_id} className="card-row">
-                  <Avatar name={p?.display_name || '?'} size={36} owner="other" />
+                  <Avatar name={p?.display_name || '?'} size={36} owner="other" src={photoUrl(p?.avatar_path)} />
                   <div className="grow"><div className="row-title">{p?.display_name || 'Member'}</div><div className="row-sub">{petsOf(m.user_id)}</div></div>
                   <span className="badge pill good">Joined</span>
                 </div>
