@@ -40,7 +40,18 @@ Deploy changes with `supabase functions deploy product-lookup`.
 - **Meds:** on hand at the last count, minus every scheduled dose since then. Days left = days until the next scheduled dose can't be covered. As-needed meds count down only when a dose is logged and alert at a threshold.
 - **Reorder:** an item is due when days left − delivery lead time ≤ 7 days.
 
+## Reminders
+
+- The app subscribes each phone to Web Push (Profile → Reminders). On iPhone this only works from the home-screen app.
+- `send-reminders` Edge Function runs every 5 minutes (pg_cron job `ourpets-reminders` → pg_net). It sends: each daily dose at its time, a morning summary (weekly/monthly doses, items to reorder, appointments today/tomorrow, vaccines due within 7 days), and appointments 2 hours before. Each reminder is sent once (`notification_log`).
+- VAPID keys and the cron secret live in `private.app_config` (not in git). The public key is also in `src/lib/push.ts`.
+- The function reuses the app's maths: after changing `src/lib/{calc,dates,types}.ts`, run `scripts/sync-shared.sh` and redeploy.
+
+## Doses
+
+Pill counts are automatic: once a dose time passes it counts as given. Tap a dose (Today, or a day in the pet's Meds week) to mark it missed; that gives the pill back to the count. Tap again to mark it given.
+
 ## Not built yet
 
-- Push notifications (Web Push + scheduled Edge Function)
+- Data export / backup
 - Lab values from exam uploads, charted per parameter

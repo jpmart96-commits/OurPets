@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApp } from '../lib/store'
-import { supabase, errMsg } from '../lib/supabase'
-import { addDays, daysBetween, fmtDateTime, fmtTime, fmtToday, greeting, relDay, todayISO } from '../lib/dates'
+import { errMsg } from '../lib/supabase'
+import { addDays, daysBetween, fmtDateTime, fmtShort, fmtTime, fmtToday, greeting, relDay, todayISO } from '../lib/dates'
 import { fmtNum, isDueOn, isUnitFood, itemInfo, medTimes, nextDue, unitFor, unitWord } from '../lib/calc'
 import { Avatar, Empty, ErrorNote, InfoTip, ItemThumb, Loading, OwnerSwitch, Screen } from '../components/ui'
 import { UnitFood } from '../components/UnitFood'
-import { IconCalendar, IconCart, IconCheck, IconPill } from '../components/icons'
+import { IconCalendar, IconCart, IconCheck, IconPill, IconX } from '../components/icons'
+import { cycleDose, slotState, type SlotState } from '../lib/actions'
+import type { DoseLog, StockItem } from '../lib/types'
 
 export default function Today() {
   const app = useApp()
@@ -18,7 +20,7 @@ export default function Today() {
   const petNames = (ids: string[]) => ids.map((id) => petById(id)?.name).filter(Boolean).join(' & ')
 
   const slots = useMemo(() => {
-    const out: { key: string; itemId: string; petId: string; pets: string; name: string; sub: string; time: string; mine: boolean; given?: string }[] = []
+    const out: { key: string; item: StockItem; petId: string; pets: string; name: string; sub: string; time: string; mine: boolean; log?: DoseLog; state: SlotState }[] = []
     for (const it of items) {
       if (it.type !== 'med' || !showOwner(it.owner_id) || !isDueOn(it, today)) continue
       const petIds = it.stock_item_pets.map((p) => p.pet_id)
@@ -29,8 +31,11 @@ export default function Today() {
         const dose = Number(it.dose ?? 1)
         let sub = `${fmtNum(dose)} ${unitFor(it, dose)}`
         if (!mine) sub += ` · ${nameOf(it.owner_id)}'s pet`
-        if (log) sub += ` · given ${fmtTime(log.given_at)}`
-        out.push({ key: it.id + t, itemId: it.id, petId: petIds[0], pets: petNames(petIds), name: it.name, sub, time: t, mine, given: log?.id })
+        const state = slotState(today, t, log)
+        if (state === 'given') sub += ` · given ${fmtTime(log!.given_at)}`
+        else if (state === 'auto') sub += ' · counted as given'
+        else if (state === 'missed') sub += ' · missed, pill added back'
+        out.push({ key: it.id + t, item: it, petId: petIds[0], pets: petNames(petIds), name: it.name, sub, time: t, mine, log, state })
       }
     }
     return out.sort((a, b) => (a.time || '00:00').localeCompare(b.time || '00:00'))
@@ -68,21 +73,27 @@ export default function Today() {
       if (!d || daysBetween(today, d) > 21) continue
       out.push({ key: it.id, title: it.name, pet: petNames(it.stock_item_pets.map((p) => p.pet_id)), when: relDay(d), sort: d })
     }
+    for (const v of app.vaccinations) {
+      const p = petById(v.pet_id)
+      if (!p || !showOwner(p.owner_id) || !v.next_due) continue
+      if (daysBetween(today, v.next_due) > 30) continue
+      const overdue = v.next_due < today
+      out.push({ key: v.id, title: v.name + (overdue ? ' (overdue)' : ''), pet: p.name, when: overdue ? `was due ${fmtShort(v.next_due)}` : relDay(v.next_due), sort: v.next_due })
+    }
     return out.sort((a, b) => a.sort.localeCompare(b.sort)).slice(0, 8)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appointments, items, app.filter, pets])
+  }, [appointments, items, app.filter, pets, app.vaccinations])
 
   async function toggle(s: (typeof slots)[number]) {
     setBusy(s.key); setErr(null)
-    const res = s.given
-      ? await supabase.from('dose_logs').delete().eq('id', s.given)
-      : await supabase.from('dose_logs').insert({ item_id: s.itemId, pet_id: s.petId, slot_date: today, slot_time: s.time })
+    const res = await cycleDose(s.item, s.petId, today, s.time, s.log)
     if (res.error) setErr(errMsg(res.error))
     await reload()
     setBusy(null)
   }
 
-  const givenCount = slots.filter((s) => s.given).length
+  const givenCount = slots.filter((s) => s.state === 'given' || s.state === 'auto').length
+  const missedCount = slots.filter((s) => s.state === 'missed').length
   const myPets = pets.filter((p) => p.owner_id === userId)
   const first = (profile?.display_name || '').split(' ')[0]
 
@@ -115,14 +126,14 @@ export default function Today() {
         <section className="card" aria-labelledby="meds-h">
           <div className="card-head">
             <h2 id="meds-h">Medication today</h2>
-            <span className="small muted">{givenCount} of {slots.length} given</span>
+            <span className="small muted">{givenCount} of {slots.length} given{missedCount ? ` · ${missedCount} missed` : ''}</span>
           </div>
           {slots.map((s) => (
             <div key={s.key} className="card-row" style={{ padding: '6px 16px 6px 6px', gap: 8 }}>
               {s.mine ? (
-                <button className={'tick' + (s.given ? ' done' : '')} onClick={() => toggle(s)} disabled={busy === s.key}
-                  aria-label={s.given ? `Undo: ${s.name} for ${s.pets} not given` : `Mark ${s.name} for ${s.pets} as given`}>
-                  <span>{s.given ? <IconCheck size={16} /> : null}</span>
+                <button className={'tick ' + s.state} onClick={() => toggle(s)} disabled={busy === s.key}
+                  aria-label={s.state === 'pending' ? `Mark ${s.name} for ${s.pets} as given` : s.state === 'missed' ? `${s.name} for ${s.pets} was missed. Tap to mark as given` : `${s.name} for ${s.pets} given. Tap if it was missed`}>
+                  <span>{s.state === 'given' || s.state === 'auto' ? <IconCheck size={16} /> : s.state === 'missed' ? <IconX size={14} /> : null}</span>
                 </button>
               ) : (
                 <div className="tick readonly" aria-hidden="true"><span /></div>

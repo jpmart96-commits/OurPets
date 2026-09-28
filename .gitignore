@@ -6,3 +6,4 @@ dev-dist
 *.log
 test-results
 tsconfig.tsbuildinfo
+_to_delete/

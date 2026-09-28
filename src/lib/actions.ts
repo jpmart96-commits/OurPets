@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
-import { isUnitFood, itemInfo, unitState } from './calc'
+import { isUnitFood, itemInfo, slotMoment, unitState } from './calc'
 import { todayISO } from './dates'
-import type { StockItem } from './types'
+import type { DoseLog, StockItem } from './types'
 
 /** A new pack was opened (food/supply) or a new box arrived (med). */
 export async function refill(item: StockItem) {
@@ -79,4 +79,44 @@ export async function countUnits(item: StockItem, n: number) {
 export async function setUnitDays(item: StockItem, days: number) {
   const r = rebased(item)
   return supabase.from('stock_items').update({ ...r, unit_days: days }).eq('id', item.id)
+}
+
+export type SlotState = 'pending' | 'auto' | 'given' | 'missed'
+
+/** A scheduled dose: past doses count as given unless marked missed. */
+export function slotState(date: string, time: string, log: DoseLog | undefined, now = new Date()): SlotState {
+  if (log?.status === 'missed') return 'missed'
+  if (log) return 'given'
+  return slotMoment(date, time) <= now ? 'auto' : 'pending'
+}
+
+/** Pill count is automatic; a missed dose gives its pill back (only if it was already counted). */
+async function adjustCount(item: StockItem, date: string, time: string, delta: number) {
+  if (!item.counted_at || slotMoment(date, time) <= new Date(item.counted_at)) return { error: null }
+  const onHand = Math.max(0, Math.round((Number(item.on_hand ?? 0) + delta) * 100) / 100)
+  return supabase.from('stock_items').update({ on_hand: onHand }).eq('id', item.id)
+}
+
+/** Tap on a dose: pending → given, given (future) → undo, given/auto (past) → missed, missed → given. */
+export async function cycleDose(item: StockItem, petId: string, date: string, time: string, log: DoseLog | undefined) {
+  const state = slotState(date, time, log)
+  const dose = Number(item.dose ?? 1)
+  const future = slotMoment(date, time) > new Date()
+  if (state === 'pending') {
+    return supabase.from('dose_logs').insert({ item_id: item.id, pet_id: petId, slot_date: date, slot_time: time, status: 'given' })
+  }
+  if (state === 'given' && future) {
+    return supabase.from('dose_logs').delete().eq('id', log!.id)
+  }
+  if (state === 'missed') {
+    const r = await supabase.from('dose_logs').update({ status: 'given', given_at: new Date().toISOString() }).eq('id', log!.id)
+    if (r.error) return r
+    return adjustCount(item, date, time, -dose)
+  }
+  // given or auto, in the past → missed
+  const r = log
+    ? await supabase.from('dose_logs').update({ status: 'missed' }).eq('id', log.id)
+    : await supabase.from('dose_logs').insert({ item_id: item.id, pet_id: petId, slot_date: date, slot_time: time, status: 'missed' })
+  if (r.error) return r
+  return adjustCount(item, date, time, dose)
 }
