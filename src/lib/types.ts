@@ -1,0 +1,122 @@
+export type Species = 'dog' | 'cat' | 'other'
+export type ItemType = 'food' | 'med' | 'supply'
+export type ItemStatus = 'active' | 'paused' | 'finished'
+export type Frequency = 'daily' | 'weekly' | 'monthly' | 'as_needed'
+export type MedForm = 'tablet' | 'chew' | 'capsule' | 'sachet' | 'dose'
+
+export interface Profile {
+  id: string
+  display_name: string
+  shares_home: boolean
+  morning_summary: string
+}
+
+export interface Household {
+  id: string
+  name: string
+}
+
+export interface Member {
+  household_id: string
+  user_id: string
+  role: 'owner' | 'member'
+}
+
+export interface Pet {
+  id: string
+  household_id: string
+  owner_id: string
+  name: string
+  species: Species
+  breed: string | null
+  sex: 'male' | 'female' | null
+  neutered: boolean | null
+  birth_date: string | null
+  microchip: string | null
+  vet_name: string | null
+  notes: string | null
+  archived: boolean
+}
+
+export interface Store {
+  id: string
+  household_id: string
+  name: string
+  cart_url: string | null
+  free_shipping_threshold: number | null
+}
+
+export interface StockPet {
+  item_id: string
+  pet_id: string
+  daily_grams: number | null
+}
+
+export interface StockItem {
+  id: string
+  household_id: string
+  owner_id: string
+  type: ItemType
+  name: string
+  status: ItemStatus
+  source: 'store' | 'vet'
+  store_id: string | null
+  product_url: string | null
+  cart_url: string | null
+  price: number | null
+  lead_days: number
+  pack_kg: number | null
+  opened_on: string | null
+  pack_days: number | null
+  form: MedForm | null
+  dose: number | null
+  frequency: Frequency | null
+  dose_times: string[] | null
+  start_date: string | null
+  box_size: number | null
+  on_hand: number | null
+  counted_at: string | null
+  alert_at: number | null
+  in_cart: boolean
+  ordered_at: string | null
+  created_at: string
+  stock_item_pets: StockPet[]
+}
+
+export interface DoseLog {
+  id: string
+  item_id: string
+  pet_id: string
+  slot_date: string
+  slot_time: string
+  given_at: string
+  given_by: string | null
+}
+
+export interface Appointment {
+  id: string
+  pet_id: string
+  title: string
+  starts_at: string
+  location: string | null
+  notes: string | null
+}
+
+export interface Weight {
+  id: string
+  pet_id: string
+  measured_on: string
+  kg: number
+  note: string | null
+}
+
+export interface DocumentRow {
+  id: string
+  pet_id: string
+  title: string
+  taken_on: string | null
+  storage_path: string
+  mime_type: string | null
+  size_bytes: number | null
+  created_at: string
+}
