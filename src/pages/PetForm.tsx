@@ -4,12 +4,13 @@ import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import type { Species } from '../lib/types'
 import { removePhoto, uploadPhoto } from '../lib/photos'
-import { Chips, ErrorNote, PhotoPicker, Segmented } from '../components/ui'
+import { Chips, ErrorNote, PhotoPicker, Segmented, useGoBack } from '../components/ui'
 
 export default function PetForm() {
   const { id } = useParams()
   const { petById, household, userId, reload, photoUrl } = useApp()
   const nav = useNavigate()
+  const goBack = useGoBack('/pets')
   const existing = id ? petById(id) : undefined
 
   const [name, setName] = useState('')
@@ -77,7 +78,7 @@ export default function PetForm() {
     <div className="screen">
       <form className="content" onSubmit={save} style={{ paddingBottom: 40 }}>
         <div className="topbar">
-          <button type="button" onClick={() => nav(-1)}>Cancel</button>
+          <button type="button" onClick={() => goBack()}>Cancel</button>
           <h1>{existing ? `Edit ${existing.name}` : 'New pet'}</h1>
           <button type="submit" className="strong" disabled={busy}>Save</button>
         </div>

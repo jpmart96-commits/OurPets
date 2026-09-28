@@ -32,10 +32,21 @@ export function Screen({ children, tabs = true }: { children: ReactNode; tabs?: 
   )
 }
 
+/** Go back inside the app; if the page was opened directly (no in-app history), go to a sensible screen instead. */
+export function useGoBack(fallback: string) {
+  const nav = useNavigate()
+  return () => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0
+    if (idx > 0) nav(-1)
+    else nav(fallback, { replace: true })
+  }
+}
+
 export function BackLink({ to, label }: { to?: string; label: string }) {
   const nav = useNavigate()
+  const back = useGoBack('/')
   return (
-    <button className="back" onClick={() => (to ? nav(to) : nav(-1))}>
+    <button className="back" onClick={() => (to ? nav(to) : back())}>
       <IconBack size={20} />
       {label}
     </button>

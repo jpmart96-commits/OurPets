@@ -5,8 +5,9 @@ import { supabase, errMsg } from '../lib/supabase'
 import { addDays, fmtShort, parseISO, todayISO } from '../lib/dates'
 import { UNIT_PLURAL, fmtNum, itemInfo, ordinal } from '../lib/calc'
 import type { Frequency, ItemStatus, ItemType, MedForm, StockItem } from '../lib/types'
-import { removePhoto, uploadPhoto } from '../lib/photos'
-import { Chips, ErrorNote, PhotoPicker, Segmented } from '../components/ui'
+import { removePhoto, signPhotos, uploadPhoto } from '../lib/photos'
+import { looksLikeUrl, lookupProduct, type LookupResult, type LookupVariant } from '../lib/lookup'
+import { Chips, ErrorNote, PhotoPicker, Segmented, useGoBack } from '../components/ui'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DEFAULT_TIMES = ['08:00', '20:00', '14:00', '23:00']
@@ -15,6 +16,7 @@ export default function StockForm() {
   const { id } = useParams()
   const [qs] = useSearchParams()
   const nav = useNavigate()
+  const goBack = useGoBack('/stock')
   const { items, pets, stores, userId, household, reload, nameOf, photoUrl } = useApp()
   const existing = id ? items.find((i) => i.id === id) : undefined
   const myPets = pets.filter((p) => p.owner_id === userId)
@@ -51,6 +53,12 @@ export default function StockForm() {
 
   const [photo, setPhoto] = useState<File | null>(null)
   const [dropPhoto, setDropPhoto] = useState(false)
+  // photo copied from the store by the product lookup
+  const [autoPhoto, setAutoPhoto] = useState<{ path: string; url?: string } | null>(null)
+  const [looking, setLooking] = useState(false)
+  const [lookup, setLookup] = useState<LookupResult | null>(null)
+  const [lookedUp, setLookedUp] = useState('')
+  const [variantIdx, setVariantIdx] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -113,7 +121,7 @@ export default function StockForm() {
   if (existing && existing.owner_id !== userId) {
     return (
       <div className="login">
-        <button className="back" onClick={() => nav(-1)}>Back</button>
+        <button className="back" onClick={() => goBack()}>Back</button>
         <h1 className="title">{existing.name}</h1>
         <p className="note">This belongs to {nameOf(existing.owner_id)}. Only they can change it.</p>
       </div>
@@ -129,6 +137,50 @@ export default function StockForm() {
     const next = [...times]
     while (next.length < n) next.push(DEFAULT_TIMES[next.length] ?? '12:00')
     setTimes(next.slice(0, n))
+  }
+
+  function applyVariant(v: LookupVariant, base: LookupResult) {
+    if (v.name) setName(v.name)
+    else if (base.name) setName(base.name.includes(v.label) ? base.name : `${base.name.replace(/\s+\d+(?:[.,]\d+)?\s*(?:kg|g)\b.*$/i, '')} ${v.label}`.trim())
+    if (v.price != null) setPrice(String(v.price))
+    if (v.pack_kg) setPackKg(String(v.pack_kg))
+    if (v.units) setBoxSize(String(v.units))
+    if (v.url) setProductUrl(v.url)
+  }
+
+  async function runLookup(url: string) {
+    const u = url.trim()
+    if (!looksLikeUrl(u) || u === lookedUp || looking) return
+    setLooking(true); setLookup(null); setLookedUp(u)
+    const r = await lookupProduct(u)
+    setLooking(false)
+    setLookup(r)
+    if (r.error) return
+    const t: ItemType = !existing && r.type ? r.type : type
+    if (!existing && r.type) setType(r.type)
+    if (r.name) setName(r.name)
+    if (r.price != null) setPrice(String(r.price))
+    if (t === 'food' && r.pack_kg) setPackKg(String(r.pack_kg))
+    if (t === 'med') {
+      if (r.form) setForm(r.form)
+      if (r.units) { setBoxSize(String(r.units)); if (!onHand.trim()) setOnHand(String(r.units)) }
+      setSource('store')
+    }
+    if (r.url && r.url !== u) setProductUrl(r.url)
+    if (r.site) {
+      const match = stores.find((s) => r.site!.toLowerCase().includes(s.name.toLowerCase().replace(/\s+/g, '')))
+      if (match) setStoreId(match.id)
+    }
+    if (r.variants?.length) {
+      const i = r.selected ?? 0
+      setVariantIdx(i)
+      if (r.variants[i]) applyVariant(r.variants[i], r)
+    } else setVariantIdx(null)
+    if (r.photo_path && !photo) {
+      const signed = await signPhotos([r.photo_path])
+      setAutoPhoto({ path: r.photo_path, url: signed[r.photo_path] })
+      setDropPhoto(false)
+    }
   }
 
   async function save(e?: FormEvent) {
@@ -166,6 +218,7 @@ export default function StockForm() {
     try {
       if (photo && household) photo_path = await uploadPhoto(household.id, 'items', photo)
       else if (dropPhoto) photo_path = null
+      else if (autoPhoto) photo_path = autoPhoto.path
     } catch (e) { setBusy(false); setError('Photo upload failed: ' + errMsg(e)); return }
     row.photo_path = photo_path
     const res = existing
@@ -181,7 +234,7 @@ export default function StockForm() {
     if (ins.error) { setError(errMsg(ins.error)); return }
     if (existing?.photo_path && existing.photo_path !== photo_path) void removePhoto(existing.photo_path)
     await reload()
-    nav(-1)
+    goBack()
   }
 
   async function remove() {
@@ -200,7 +253,7 @@ export default function StockForm() {
     <div className="screen">
       <form className="content" onSubmit={save} style={{ paddingBottom: 40 }}>
         <div className="topbar">
-          <button type="button" onClick={() => nav(-1)}>Cancel</button>
+          <button type="button" onClick={() => goBack()}>Cancel</button>
           <h1>{existing ? 'Edit item' : 'Add to stock'}</h1>
           <button type="submit" className="strong" disabled={busy}>Save</button>
         </div>
@@ -210,8 +263,43 @@ export default function StockForm() {
             options={[{ id: 'food', label: 'Food' }, { id: 'med', label: 'Medication' }, { id: 'supply', label: 'Supply' }]} />
         )}
 
-        <PhotoPicker label="Item photo" round={false} file={photo} current={dropPhoto ? undefined : photoUrl(existing?.photo_path)}
-          onFile={(f) => { setPhoto(f); setDropPhoto(false) }} onRemove={() => { setPhoto(null); setDropPhoto(true) }} />
+        {source === 'store' && (
+          <section className="card pad stack-sm" aria-labelledby="link-h" style={{ background: 'var(--accent-soft)', borderColor: 'transparent' }}>
+            <label id="link-h" htmlFor="su" className="label">Product link</label>
+            <div className="row" style={{ gap: 8 }}>
+              <input id="su" className="input" type="url" inputMode="url" value={productUrl} placeholder="Paste a Zooplus or Newpet link"
+                onChange={(e) => setProductUrl(e.target.value)}
+                onPaste={(e) => { const t = e.clipboardData.getData('text'); if (looksLikeUrl(t)) setTimeout(() => void runLookup(t), 0) }}
+                onBlur={() => void runLookup(productUrl)} />
+              <button type="button" className="btn small" style={{ minHeight: 46, flexShrink: 0 }} disabled={!looksLikeUrl(productUrl) || looking}
+                onClick={() => { setLookedUp(''); void runLookup(productUrl) }}>{looking ? 'Reading…' : 'Fill in'}</button>
+            </div>
+            {looking && <div className="hint">Reading the store page…</div>}
+            {!looking && lookup?.error && <div className="hint" style={{ color: 'var(--warn)' }}>{lookup.error}</div>}
+            {!looking && lookup && !lookup.error && (
+              <div className="hint">
+                Filled in from {lookup.site ?? 'the store'}: {[lookup.name && 'name', (autoPhoto || lookup.photo_path) && 'photo', lookup.price != null && 'price', (lookup.pack_kg || lookup.units || lookup.variants) && 'pack size', !existing && lookup.type && 'type'].filter(Boolean).join(', ') || 'nothing useful, sorry'}. Check it looks right.
+              </div>
+            )}
+            {!looking && !lookup && <div className="hint">Paste the link and the name, photo, price and pack size fill in by themselves.</div>}
+            {lookup?.variants && lookup.variants.length > 1 && (
+              <div className="stack-sm" style={{ marginTop: 4 }}>
+                <span className="label">Which size do you buy?</span>
+                <div className="chips" role="group" aria-label="Pack size">
+                  {lookup.variants.map((v, i) => (
+                    <button key={i} type="button" aria-pressed={variantIdx === i} className={'chip' + (variantIdx === i ? ' on' : '')}
+                      onClick={() => { setVariantIdx(i); applyVariant(v, lookup) }}>
+                      {v.label}{v.price != null ? ` · €${v.price.toFixed(2)}` : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        <PhotoPicker label="Item photo" round={false} file={photo} current={dropPhoto ? undefined : (autoPhoto?.url ?? photoUrl(existing?.photo_path))}
+          onFile={(f) => { setPhoto(f); setDropPhoto(false); setAutoPhoto(null) }} onRemove={() => { setPhoto(null); setDropPhoto(true); setAutoPhoto(null) }} />
 
         <div className="field">
           <label htmlFor="sn">Name</label>
@@ -299,10 +387,6 @@ export default function StockForm() {
 
         {source === 'store' && (
           <>
-            <div className="field">
-              <label htmlFor="su">Product link</label>
-              <input id="su" className="input" type="url" inputMode="url" value={productUrl} onChange={(e) => setProductUrl(e.target.value)} placeholder="https://www.zooplus.pt/…" />
-            </div>
             <div className="field">
               <span className="label">Store</span>
               <Chips<string> label="Store" value={storeId} onChange={setStoreId}

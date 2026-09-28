@@ -25,6 +25,12 @@ Migrations live in `supabase/migrations/` and are already applied to the project
 - `create_invite()` / `accept_invite(code)` join someone into your household. Their pets and stock move with them.
 - Exam files are stored at `pet-docs/<pet_id>/<file>`; only the household can read them.
 
+## Product links
+
+Pasting a store link in **Add to stock** calls the `product-lookup` Edge Function (`supabase/functions/product-lookup`). It reads the page server-side, takes name, photo, price, pack size and sizes from schema.org JSON-LD / Open Graph (Zooplus) or the page HTML (Newpet), and copies the photo into the household's `photos` bucket. Only public http(s) addresses are fetched.
+
+Deploy changes with `supabase functions deploy product-lookup`.
+
 ## How the numbers work
 
 - **Food:** days per pack = pack kg × 1000 ÷ total grams per day; days left counts down from the date the pack was opened.
