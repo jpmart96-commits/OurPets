@@ -149,7 +149,11 @@ export interface Appointment {
   title: string
   starts_at: string
   location: string | null
+  /** free-text visit notes: what the vet said (or, before the visit, what to ask) */
   notes: string | null
+  /** set on a follow-up booked from a visit: the visit it follows */
+  follow_up_of: string | null
+  created_at: string
 }
 
 export interface Weight {
@@ -158,6 +162,8 @@ export interface Weight {
   measured_on: string
   kg: number
   note: string | null
+  /** weighed at this vet visit */
+  appointment_id: string | null
 }
 
 export interface DocumentRow {
@@ -168,6 +174,8 @@ export interface DocumentRow {
   storage_path: string
   mime_type: string | null
   size_bytes: number | null
+  /** given at this vet visit */
+  appointment_id: string | null
   created_at: string
 }
 
@@ -215,5 +223,7 @@ export interface Expense {
   note: string | null
   /** not part of normal monthly spending: counted in totals, left out of the monthly average */
   one_off: boolean
+  /** paid at this vet visit */
+  appointment_id: string | null
   created_at: string
 }

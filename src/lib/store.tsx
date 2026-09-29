@@ -96,7 +96,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         supabase.from('stores').select('*').order('name'),
         supabase.from('stock_items').select('*, stock_item_pets(*)').order('name'),
         supabase.from('dose_logs').select('*').gte('slot_date', since),
-        supabase.from('appointments').select('*').gte('starts_at', new Date(Date.now() - 86400000).toISOString()).order('starts_at'),
+        supabase.from('appointments').select('*').gte('starts_at', new Date(Date.now() - 3 * 86400000).toISOString()).order('starts_at'),
         supabase.from('vaccinations').select('*').order('next_due', { nullsFirst: false })
       ])
       const firstErr = [pr, hm, hh, pets, stores, items, logs, appts, vax].find((r) => r.error)?.error

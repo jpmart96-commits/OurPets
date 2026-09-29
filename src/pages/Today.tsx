@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { errMsg } from '../lib/supabase'
-import { addDays, daysBetween, fmtDateTime, fmtShort, fmtTime, fmtToday, greeting, relDay, todayISO } from '../lib/dates'
+import { addDays, daysBetween, fmtDateTime, fmtShort, fmtTime, fmtToday, greeting, relDay, toISO, todayISO } from '../lib/dates'
 import { countText, daysShort, expiryText, expiryTone, expiryWarn, fmtNum, isDueOn, isUnitFood, itemInfo, medTimes, nextDue, orderText, slotMoment, stockTone, unitFor, unitWord } from '../lib/calc'
 import { Avatar, Collapse, Meta, Empty, ErrorNote, InfoTip, ItemThumb, Loading, OwnerSwitch, petTint, ProgressRing, Screen, TickCheck, ToneBadge, haptic } from '../components/ui'
 import { UnitFood } from '../components/UnitFood'
@@ -128,14 +128,14 @@ export default function Today() {
   [items, userId])
 
   const upcoming = useMemo(() => {
-    const out: { key: string; title: string; petIds: string[]; pet: string; when: string; sort: string }[] = []
+    const out: { key: string; title: string; petIds: string[]; pet: string; when: string; sort: string; href?: string }[] = []
     const horizon = addDays(today, 30)
     for (const a of appointments) {
       const p = petById(a.pet_id)
       if (!p || !showOwner(p.owner_id)) continue
       if (a.starts_at.slice(0, 10) > horizon) continue
       if (new Date(a.starts_at) < new Date()) continue
-      out.push({ key: a.id, title: a.title, petIds: [p.id], pet: p.name, when: fmtDateTime(a.starts_at), sort: a.starts_at })
+      out.push({ key: a.id, title: a.title, petIds: [p.id], pet: p.name, when: fmtDateTime(a.starts_at), sort: a.starts_at, href: `/pets/${p.id}/visits/${a.id}` })
     }
     for (const it of items) {
       if (it.type !== 'med' || !showOwner(it.owner_id)) continue
@@ -157,6 +157,21 @@ export default function Today() {
   }, [appointments, items, app.filter, pets, app.vaccinations])
 
   const upPets = new Set(upcoming.flatMap((u) => u.petIds)).size
+
+  // visits in the last 3 days without notes: a nudge to write down what the vet said
+  const [dismissed, setDismissed] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('ourpets.visitNudgeOff') || '[]') as string[] } catch { return [] }
+  })
+  const recentVisits = appointments.filter((a) => {
+    const p = petById(a.pet_id)
+    const t = new Date(a.starts_at).getTime()
+    return p && p.owner_id === userId && !a.notes && t <= Date.now() && t > Date.now() - 3 * 86400e3 && !dismissed.includes(a.id)
+  })
+  const dismissVisit = (id: string) => {
+    const next = [...dismissed, id].slice(-50)
+    setDismissed(next)
+    try { localStorage.setItem('ourpets.visitNudgeOff', JSON.stringify(next)) } catch { /* storage unavailable */ }
+  }
 
   function hold(slotKey: string) {
     window.clearTimeout(holdTimers.current[slotKey])
@@ -381,22 +396,48 @@ export default function Today() {
         </section>
       )}
 
-      {upcoming.length > 0 && (
-        <section className="card" aria-labelledby="up-h">
-          <div className="card-head"><h2 id="up-h">Coming up</h2></div>
-          {upcoming.map((u) => (
-            <div key={u.key} className="card-row" style={upPets > 1 && u.petIds.length ? petTint(u.petIds.map(petColor)) : undefined}>
-              <div className="icon-tile soft"><IconCalendar size={19} /></div>
-              <div className="grow">
-                <div className="row-title">{u.title}</div>
-                <Meta parts={[u.pet, u.when]} />
+      {recentVisits.length > 0 && (
+        <section className="card" aria-labelledby="rv-h">
+          <div className="card-head"><h2 id="rv-h" style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>How did the vet visit go?
+            <InfoTip label="About this card">Write down what the vet said while you still remember it, and add the documents they gave you. Shows for 3 days after a visit that has no notes yet.</InfoTip></h2></div>
+          {recentVisits.map((a) => {
+            const p = petById(a.pet_id)!
+            return (
+              <div key={a.id} className="card-row">
+                <div className="icon-tile soft"><IconCalendar size={19} /></div>
+                <Link to={`/pets/${p.id}/visits/${a.id}`} className="grow" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div className="row-title">{p.name} · {a.title}</div>
+                  <Meta parts={[`${relDay(toISO(new Date(a.starts_at)))} ${fmtTime(a.starts_at)}`, <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Add notes</span>]} />
+                </Link>
+                <button className="icon-btn plain" aria-label={`No notes for ${a.title}`} onClick={() => dismissVisit(a.id)}><IconX size={14} /></button>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </section>
       )}
 
-      {myPets.length > 0 && slots.length === 0 && low.length === 0 && upcoming.length === 0 && cans.length === 0 && dates.length === 0 && (
+      {upcoming.length > 0 && (
+        <section className="card" aria-labelledby="up-h">
+          <div className="card-head"><h2 id="up-h">Coming up</h2></div>
+          {upcoming.map((u) => {
+            const inner = (
+              <>
+                <div className="icon-tile soft"><IconCalendar size={19} /></div>
+                <div className="grow">
+                  <div className="row-title">{u.title}</div>
+                  <Meta parts={[u.pet, u.when]} />
+                </div>
+              </>
+            )
+            const style = upPets > 1 && u.petIds.length ? petTint(u.petIds.map(petColor)) : undefined
+            return u.href
+              ? <Link key={u.key} to={u.href} className="card-row" style={{ ...style, textDecoration: 'none', color: 'inherit' }}>{inner}</Link>
+              : <div key={u.key} className="card-row" style={style}>{inner}</div>
+          })}
+        </section>
+      )}
+
+      {myPets.length > 0 && slots.length === 0 && low.length === 0 && upcoming.length === 0 && cans.length === 0 && dates.length === 0 && recentVisits.length === 0 && (
         <Empty title="All clear">
           <div className="hint">Nothing due today. Add medication or food to {myPets[0].name}'s stock to get reminders.</div>
           <Link to="/stock/new?type=med" className="btn ghost" style={{ alignSelf: 'flex-start' }}><IconPill size={18} />Add medication</Link>

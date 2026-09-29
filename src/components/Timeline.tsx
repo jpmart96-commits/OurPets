@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase, errMsg } from '../lib/supabase'
 import { fmtDate, fmtShort, fmtTime, toISO, todayISO } from '../lib/dates'
 import { euro, fmtNum, medChangeText } from '../lib/calc'
@@ -22,6 +23,10 @@ interface Entry {
   tags?: string[]
   photo?: string | null
   docPath?: string
+  /** in-app link (vet visits) */
+  href?: string
+  /** longer text shown under the sub line, clamped */
+  body?: string
   onDelete?: () => void
 }
 
@@ -96,7 +101,7 @@ export function TimelineTab(props: {
       const delta = prev ? Number(w.kg) - Number(prev.kg) : null
       out.push({
         key: 'w' + w.id, at: new Date(w.measured_on + 'T12:00:00').getTime(), day: w.measured_on, kind: 'weight',
-        title: `Weighed ${fmtNum(Number(w.kg))} kg`,
+        title: `Weighed ${fmtNum(Number(w.kg))} kg${w.appointment_id ? ' at the vet' : ''}`,
         sub: delta != null && Math.abs(delta) >= 0.05 ? `${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(2).replace(/0$/, '')} kg since ${fmtShort(prev!.measured_on)}` : undefined
       })
     })
@@ -117,7 +122,10 @@ export function TimelineTab(props: {
     for (const a of props.appts) {
       const d = new Date(a.starts_at)
       if (d.getTime() > now) continue
-      out.push({ key: 'a' + a.id, at: d.getTime(), day: toISO(d), kind: 'appt', title: a.title, sub: [fmtTime(a.starts_at), a.location, a.notes].filter(Boolean).join(' · ') })
+      out.push({
+        key: 'a' + a.id, at: d.getTime(), day: toISO(d), kind: 'appt', title: a.title, href: `/pets/${pet.id}/visits/${a.id}`,
+        sub: [fmtTime(a.starts_at), a.location, a.notes ? null : mine ? 'tap to add notes' : null].filter(Boolean).join(' · '), body: a.notes ?? undefined
+      })
     }
     for (const v of props.vaccines) {
       if (!v.given_on) continue
@@ -125,7 +133,8 @@ export function TimelineTab(props: {
     }
     for (const doc of props.docs) {
       const day = doc.taken_on ?? doc.created_at.slice(0, 10)
-      out.push({ key: 'd' + doc.id, at: new Date(day + 'T10:00:00').getTime(), day, kind: 'doc', title: doc.title, sub: 'File · tap to open', docPath: doc.storage_path })
+      const visit = doc.appointment_id ? props.appts.find((a) => a.id === doc.appointment_id) : undefined
+      out.push({ key: 'd' + doc.id, at: new Date(day + 'T10:00:00').getTime(), day, kind: 'doc', title: doc.title, sub: visit ? `From ${visit.title} · tap to open` : 'File · tap to open', docPath: doc.storage_path })
     }
     for (const e of props.expenses) {
       if (!['vet', 'insurance', 'grooming', 'other'].includes(e.category)) continue
@@ -136,7 +145,7 @@ export function TimelineTab(props: {
     }
     return out.sort((a, b) => b.at - a.at)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, props.weights, props.changes, props.missed, props.appts, props.vaccines, props.docs, props.expenses, props.items, mine])
+  }, [notes, props.weights, props.changes, props.missed, props.appts, props.vaccines, props.docs, props.expenses, props.items, mine, pet.id])
 
   const kinds = FILTER_KINDS[filter]
   const visible = kinds ? entries.filter((e) => kinds.includes(e.kind)) : entries
@@ -203,8 +212,11 @@ export function TimelineTab(props: {
                     onClick={() => void openPetDoc(e.docPath!).then((m) => m && setError(m))}>
                     <span className="row-title">{e.title}</span>
                   </button>
+                ) : e.href ? (
+                  <Link to={e.href} className="row-title" style={{ color: 'var(--ink)', textDecoration: 'none', display: 'block' }}>{e.title}</Link>
                 ) : <div className="row-title">{e.title}</div>}
                 {e.sub && <div className="row-sub" style={{ whiteSpace: 'pre-wrap' }}>{e.sub}</div>}
+                {e.body && <Link to={e.href ?? '#'} className="visit-preview" style={{ textDecoration: 'none', display: '-webkit-box' }}>{e.body}</Link>}
                 {e.photo && photos[e.photo] && (
                   <button type="button" onClick={() => void openPetDoc(e.photo!).then((m) => m && setError(m))}
                     style={{ marginTop: 8, padding: 0, border: 0, background: 'transparent', display: 'block' }} aria-label="Open photo">

@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useApp } from '../lib/store'
 import { supabase, errMsg } from '../lib/supabase'
 import { addDays, ageText, fmtDate, fmtDateTime, fmtShort, fmtTime, parseISO, todayISO } from '../lib/dates'
 import { courseText, isCountItem, daysShort, daysText, euro, stockTone, expiryText, expiryWarn, fmtNum, isDueOn, itemInfo, medChangeText, medStart, medTimes, scheduleText, showExpiry, unitFor, isUnitFood, unitRateText } from '../lib/calc'
 import { cycleDose, logAsNeeded, refill, slotState } from '../lib/actions'
 import type { Appointment, DocumentRow, DoseLog, Expense, HealthNote, MedChange, StockItem, Weight } from '../lib/types'
-import { Avatar, BackLink, Bar, ToneBadge, ErrorNote, ItemThumb, Loading, Screen, Segmented } from '../components/ui'
+import { Avatar, BackLink, Bar, ToneBadge, ErrorNote, InfoTip, ItemThumb, Loading, Screen, Segmented } from '../components/ui'
 import { IconCheck, IconDoc, IconPlus, IconTrash, IconX } from '../components/icons'
 import WeightChart from '../components/WeightChart'
 import { EmergencyCard, VaccinesCard } from '../components/PetHealth'
 import { TimelineTab } from '../components/Timeline'
 import { monthlyRunRate, petShare } from '../lib/costs'
 import { tagLabel } from '../lib/health'
+import { VisitRow, VisitsTab } from '../components/Visits'
 
-type Tab = 'overview' | 'timeline' | 'meds' | 'weight' | 'records'
+type Tab = 'overview' | 'timeline' | 'visits' | 'meds' | 'weight' | 'records'
+const TABS: Tab[] = ['overview', 'timeline', 'visits', 'meds', 'weight', 'records']
 const SPECIES: Record<string, string> = { dog: 'Dog', cat: 'Cat', other: 'Pet' }
 
 export default function PetDetail() {
@@ -23,7 +25,9 @@ export default function PetDetail() {
   const { petById, userId, items, logs, shared, nameOf, reload, photoUrl } = app
   const pet = petById(id)
   const mine = pet?.owner_id === userId
-  const [tab, setTab] = useState<Tab>('overview')
+  const [params, setParams] = useSearchParams()
+  const tab: Tab = TABS.includes(params.get('tab') as Tab) ? params.get('tab') as Tab : 'overview'
+  const setTab = (t: Tab) => setParams(t === 'overview' ? {} : { tab: t }, { replace: true })
   const [weights, setWeights] = useState<Weight[]>([])
   const [docs, setDocs] = useState<DocumentRow[]>([])
   const [appts, setAppts] = useState<Appointment[]>([])
@@ -31,6 +35,7 @@ export default function PetDetail() {
   const [changes, setChanges] = useState<MedChange[]>([])
   const [missed, setMissed] = useState<DoseLog[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
+  const [visitCosts, setVisitCosts] = useState<Expense[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -42,16 +47,17 @@ export default function PetDetail() {
     if (!id) return
     const medIds = medKey ? medKey.split(',') : []
     const yearAgo = addDays(todayISO(), -400)
-    const [w, d, a, n, c, m, x] = await Promise.all([
+    const [w, d, a, n, c, m, x, vc] = await Promise.all([
       supabase.from('weights').select('*').eq('pet_id', id).order('measured_on'),
       supabase.from('documents').select('*').eq('pet_id', id).order('created_at', { ascending: false }),
       supabase.from('appointments').select('*').eq('pet_id', id).order('starts_at'),
       supabase.from('health_notes').select('*').eq('pet_id', id).order('noted_at', { ascending: false }).limit(500),
       medIds.length ? supabase.from('med_changes').select('*').in('item_id', medIds).order('changed_at') : Promise.resolve({ data: [], error: null }),
       supabase.from('dose_logs').select('*').eq('pet_id', id).eq('status', 'missed').gte('slot_date', yearAgo),
-      supabase.from('expenses').select('*').contains('pet_ids', [id]).gte('spent_on', yearAgo).order('spent_on', { ascending: false })
+      supabase.from('expenses').select('*').contains('pet_ids', [id]).gte('spent_on', yearAgo).order('spent_on', { ascending: false }),
+      supabase.from('expenses').select('*').contains('pet_ids', [id]).not('appointment_id', 'is', null)
     ])
-    const e = w.error || d.error || a.error || n.error || c.error || m.error || x.error
+    const e = w.error || d.error || a.error || n.error || c.error || m.error || x.error || vc.error
     if (e) setError(errMsg(e))
     setWeights((w.data ?? []) as Weight[])
     setDocs((d.data ?? []) as DocumentRow[])
@@ -60,6 +66,7 @@ export default function PetDetail() {
     setChanges((c.data ?? []) as MedChange[])
     setMissed((m.data ?? []) as DoseLog[])
     setExpenses((x.data ?? []) as Expense[])
+    setVisitCosts((vc.data ?? []) as Expense[])
   }, [id, medKey])
 
   useEffect(() => { void load() }, [load])
@@ -95,7 +102,7 @@ export default function PetDetail() {
 
       <div role="tablist" aria-label={`${pet.name} sections`}>
         <Segmented<Tab> label={`${pet.name} sections`} value={tab} onChange={setTab} tight
-          options={[{ id: 'overview', label: 'Overview' }, { id: 'timeline', label: 'Timeline' }, { id: 'meds', label: 'Meds' }, { id: 'weight', label: 'Weight' }, { id: 'records', label: 'Files' }]} />
+          options={[{ id: 'overview', label: 'Overview' }, { id: 'timeline', label: 'Timeline' }, { id: 'visits', label: 'Vet' }, { id: 'meds', label: 'Meds' }, { id: 'weight', label: 'Weight' }, { id: 'records', label: 'Files' }]} />
       </div>
       <ErrorNote msg={error} />
 
@@ -111,7 +118,7 @@ export default function PetDetail() {
             <div className="stat"><div className="k">Vet</div><div className="v" style={{ fontSize: 15 }}>{pet.vet_name || '—'}</div></div>
           </div>
 
-          <AppointmentsCard petId={pet.id} mine={mine} upcoming={upcoming} past={past} run={run} busy={busy} />
+          <AppointmentsCard petId={pet.id} mine={mine} upcoming={upcoming} past={past} total={appts.filter((a) => new Date(a.starts_at) < new Date()).length} run={run} busy={busy} onAll={() => setTab('visits')} />
           <VaccinesCard pet={pet} mine={mine} vaccines={app.vaccinations.filter((v) => v.pet_id === pet.id)} run={run} busy={busy} />
 
           <button type="button" className="card pad row" onClick={() => setTab('timeline')} style={{ textAlign: 'left', width: '100%', font: 'inherit', color: 'inherit' }}>
@@ -162,15 +169,18 @@ export default function PetDetail() {
         <TimelineTab pet={pet} mine={mine} notes={notes} weights={weights} changes={changes} missed={missed} appts={appts}
           vaccines={app.vaccinations.filter((v) => v.pet_id === pet.id)} docs={docs} expenses={expenses} items={meds} run={run} busy={busy} setError={setError} />
       )}
+      {tab === 'visits' && <VisitsTab pet={pet} mine={mine} appts={appts} docs={docs} weights={weights} costs={visitCosts} />}
       {tab === 'weight' && <WeightTab petId={pet.id} mine={mine} weights={weights} run={run} busy={busy} />}
-      {tab === 'records' && <RecordsTab petId={pet.id} mine={mine} docs={docs} run={run} busy={busy} setError={setError} />}
+      {tab === 'records' && <RecordsTab petId={pet.id} mine={mine} docs={docs} appts={appts} run={run} busy={busy} setError={setError} />}
     </Screen>
   )
 }
 
 type Run = (fn: () => PromiseLike<{ error: unknown }>) => Promise<void>
 
-function AppointmentsCard({ petId, mine, upcoming, past, run, busy }: { petId: string; mine: boolean; upcoming: Appointment[]; past: Appointment[]; run: Run; busy: boolean }) {
+function AppointmentsCard({ petId, mine, upcoming, past, total, run, busy, onAll }: {
+  petId: string; mine: boolean; upcoming: Appointment[]; past: Appointment[]; total: number; run: Run; busy: boolean; onAll: () => void
+}) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('Vet check-up')
   const [date, setDate] = useState(addDays(todayISO(), 7))
@@ -186,23 +196,13 @@ function AppointmentsCard({ petId, mine, upcoming, past, run, busy }: { petId: s
     setOpen(false)
   }
 
-  const row = (a: Appointment, faded = false) => {
-    const d = new Date(a.starts_at)
-    return (
-      <div key={a.id} className="card-row" style={faded ? { opacity: 0.7 } : undefined}>
-        <div className="date-tile"><div className="m" style={faded ? { color: 'var(--muted-2)' } : undefined}>{d.toLocaleString('en', { month: 'short' })}</div><div className="d">{d.getDate()}</div></div>
-        <div className="grow"><div className="row-title">{a.title}</div><div className="row-sub">{fmtDateTime(a.starts_at)}{a.location ? ` · ${a.location}` : ''}</div></div>
-        {mine && <button className="icon-btn plain" aria-label={`Delete ${a.title}`} disabled={busy}
-          onClick={() => { if (window.confirm('Delete this appointment?')) void run(() => supabase.from('appointments').delete().eq('id', a.id)) }}><IconTrash size={18} /></button>}
-      </div>
-    )
-  }
-
   return (
     <section className="card" aria-labelledby="appt-h">
       <div className="card-head" style={{ alignItems: 'center', paddingBottom: 6 }}>
-        <h2 id="appt-h">Appointments</h2>
-        {mine && <button className="icon-btn plain" aria-label="Add appointment" onClick={() => setOpen(!open)}><IconPlus size={20} /></button>}
+        <h2 id="appt-h" style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>Vet visits
+          <InfoTip label="About vet visits">Book appointments here to get reminders. Tap any visit to write notes: questions before it, what the vet said after it, plus the documents, weight, cost and follow-up.</InfoTip>
+        </h2>
+        {mine && <button className="icon-btn plain" aria-label="Book an appointment" onClick={() => setOpen(!open)}><IconPlus size={20} /></button>}
       </div>
       {open && (
         <form className="card-foot" onSubmit={add} style={{ borderTop: '1px solid var(--line-2)' }}>
@@ -216,9 +216,13 @@ function AppointmentsCard({ petId, mine, upcoming, past, run, busy }: { petId: s
         </form>
       )}
       {upcoming.length === 0 && !open && <div className="card-row"><span className="hint">Nothing booked.</span></div>}
-      {upcoming.map((a) => row(a))}
-      {past.length > 0 && <div className="card-row small muted" style={{ fontWeight: 700, paddingBottom: 4 }}>Past</div>}
-      {past.map((a) => row(a, true))}
+      {upcoming.map((a) => <VisitRow key={a.id} a={a} petId={petId} mine={mine} compact />)}
+      {past.length > 0 && <div className="card-row small muted" style={{ fontWeight: 700, paddingBottom: 4 }}>Last visits</div>}
+      {past.map((a) => <VisitRow key={a.id} a={a} petId={petId} mine={mine} compact />)}
+      <div className="card-row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {mine && <Link to={`/pets/${petId}/visits/new`} className="btn ghost small">Log a visit</Link>}
+        {total > 0 && <button type="button" className="link-btn" style={{ marginLeft: 'auto', minHeight: 40, padding: 0 }} onClick={onAll}>All visits · {total}</button>}
+      </div>
     </section>
   )
 }
@@ -394,7 +398,7 @@ function WeightTab({ petId, mine, weights, run, busy }: { petId: string; mine: b
   )
 }
 
-function RecordsTab({ petId, mine, docs, run, busy, setError }: { petId: string; mine: boolean; docs: DocumentRow[]; run: Run; busy: boolean; setError: (s: string | null) => void }) {
+function RecordsTab({ petId, mine, docs, appts, run, busy, setError }: { petId: string; mine: boolean; docs: DocumentRow[]; appts: Appointment[]; run: Run; busy: boolean; setError: (s: string | null) => void }) {
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [date, setDate] = useState(todayISO())
@@ -432,7 +436,7 @@ function RecordsTab({ petId, mine, docs, run, busy, setError }: { petId: string;
 
   return (
     <div className="stack">
-      {docs.length === 0 && <p className="hint">No exams or documents yet. Upload a PDF or a photo, like a blood panel or vaccination booklet.</p>}
+      {docs.length === 0 && <p className="hint">No exams or documents yet. Upload a PDF or a photo, like a blood panel or vaccination booklet. Documents from a vet visit can also be added on the visit itself (Vet tab).</p>}
       {docs.map((d) => (
         <div key={d.id} className="card pad row">
           <div className="icon-tile" style={{ width: 40, height: 48, fontSize: 10, fontWeight: 800 }}>
@@ -442,6 +446,9 @@ function RecordsTab({ petId, mine, docs, run, busy, setError }: { petId: string;
             <div className="row-title">{d.title}</div>
             <div className="row-sub">{d.taken_on ? fmtDate(d.taken_on) : fmtDate(d.created_at.slice(0, 10))}{d.size_bytes ? ` · ${Math.max(1, Math.round(d.size_bytes / 1024))} KB` : ''}</div>
           </button>
+          {d.appointment_id && appts.some((a) => a.id === d.appointment_id) && (
+            <Link to={`/pets/${petId}/visits/${d.appointment_id}`} className="badge" style={{ textDecoration: 'none' }} aria-label={`From the visit ${appts.find((a) => a.id === d.appointment_id)!.title}`}>Visit</Link>
+          )}
           {mine && <button className="icon-btn plain" aria-label={`Delete ${d.title}`} onClick={() => remove(d)} disabled={busy}><IconTrash size={18} /></button>}
         </div>
       ))}

@@ -411,3 +411,21 @@ svg.draw path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 0.28s
 .sbars-x span { flex: 1 1 0; min-width: 0; text-align: center; font-size: 11px; font-weight: 600; color: var(--muted); }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
 @media (max-width: 360px) { .est-more { padding-left: 16px; } }
+
+/* ───────── Vet visits (2026-09-29) ───────── */
+.visit-textarea { min-height: 180px; padding: 12px; font-size: 15px; line-height: 1.5; }
+.visit-notes { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.55; color: var(--ink); }
+.visit-file { gap: 10px; }
+.link-plain { border: 0; background: transparent; padding: 0; text-align: left; color: inherit; font: inherit; }
+.input.static { display: flex; align-items: center; background: var(--surface-2); color: var(--ink); }
+.visit-card { display: flex; gap: 12px; padding: 14px 16px; text-decoration: none; color: inherit; }
+.visit-card:hover { color: inherit; }
+.visit-card + .visit-card { border-top: 1px solid var(--line-2); }
+.visit-preview { margin-top: 6px; font-size: 14px; line-height: 1.45; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.visit-preview.clamp-6 { -webkit-line-clamp: 6; }
+.visit-facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.visit-facts .badge { font-weight: 600; }
+.add-notes { color: var(--accent); font-weight: 600; font-size: 13px; margin-top: 4px; }
+mark.hit { background: color-mix(in srgb, var(--soon-bar) 35%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.visit-preview.clamp-2 { -webkit-line-clamp: 2; }

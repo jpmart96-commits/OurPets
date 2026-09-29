@@ -13,6 +13,7 @@ import Shop from './pages/Shop'
 import Profile from './pages/Profile'
 import Join from './pages/Join'
 import Costs from './pages/Costs'
+import Visit from './pages/Visit'
 
 export default function App() {
   const { authReady, session } = useApp()
@@ -46,6 +47,7 @@ export default function App() {
       <Route path="/pets/new" element={<PetForm />} />
       <Route path="/pets/:id" element={<PetDetail />} />
       <Route path="/pets/:id/edit" element={<PetForm />} />
+      <Route path="/pets/:id/visits/:visitId" element={<Visit />} />
       <Route path="/stock" element={<Stock />} />
       <Route path="/stock/new" element={<StockForm />} />
       <Route path="/stock/:id" element={<StockForm />} />
